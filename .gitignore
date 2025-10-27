@@ -1,0 +1,102 @@
+# -----------------------
+# 🧠 Vasha AI - Core Ignore Rules
+# -----------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+lid-env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs / temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.old
+*.out
+*.err
+
+# -----------------------
+# 🔊 Audio & Video Cache
+# -----------------------
+Audio_TestWAV/
+recorded.wav
+youtube_cache/
+sessions/
+chunks_*/
+
+# -----------------------
+# ⚙️ Model Caches / Checkpoints
+# -----------------------
+*.ckpt
+*.pt
+*.bin
+*.h5
+*.onnx
+*.tflite
+*.pkl
+*.npy
+*.npz
+
+# Hugging Face / Transformers
+~/.cache/huggingface/
+transformers_cache/
+hf_cache/
+.cache/
+__huggingface__/
+
+# -----------------------
+# 🧾 Data & Results
+# -----------------------
+outputs/
+*.csv
+*.xlsx
+*.json
+*.pkl
+*.zip
+*.tar.gz
+*.pdf
+
+# -----------------------
+# ⚡ Environment / Config
+# -----------------------
+*.env
+config.json
+config.yaml
+config.yml
+settings.json
+
+# -----------------------
+# 🧪 Test / Debug Files
+# -----------------------
+test_*.py
+debug_*.py
+*.ipynb_checkpoints/
