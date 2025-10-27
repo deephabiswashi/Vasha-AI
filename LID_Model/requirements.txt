@@ -1,0 +1,10 @@
+torch
+torchaudio
+openai-whisper
+langid
+yt-dlp
+sounddevice
+scipy
+numpy
+ffmpeg-python
+

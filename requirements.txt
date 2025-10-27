@@ -1,0 +1,15 @@
+whisper
+torch
+torchaudio
+soundfile
+yt_dlp
+langid
+numpy
+scipy
+sounddevice
+argparse
+transformers
+onnx
+onnxruntime
+onnxruntime-gpu
+
