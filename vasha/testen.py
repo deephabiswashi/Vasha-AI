@@ -5,7 +5,7 @@ from IndicTransToolkit.processor import IndicProcessor
 # don't set attn_implemetation if you don't have flash_attn
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-src_lang, tgt_lang = "hin_Deva", "tam_Taml"
+src_lang, tgt_lang = "hin_Deva", "ben_Beng"
 model_name = "ai4bharat/indictrans2-indic-indic-1B"
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
