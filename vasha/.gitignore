@@ -1,0 +1,114 @@
+# =========================================================
+# 🧠 Python + Whisper + TTS + HuggingFace Project
+# =========================================================
+
+# --- Python cache & virtual envs ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+*.log
+*.tmp
+.env
+.venv
+venv/
+env/
+whisper_env/
+.conda/
+*.spec
+
+# --- Jupyter notebooks checkpoints ---
+.ipynb_checkpoints/
+
+# --- OS / IDE files ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Model and data cache directories ---
+models/
+checkpoints/
+cache/
+.huggingface/
+.hf_cache/
+transformers_cache/
+.parler_tts/
+.parler/
+tts_models/
+torchaudio_cache/
+tts_output/
+asrfiles/
+mt_transcript/
+audiofiles/
+samples/
+*.pt
+*.bin
+*.ckpt
+
+# --- Hugging Face + Coqui model downloads ---
+~/.cache/
+~/.local/share/tts/
+~/.local/share/whisper/
+~/.cache/huggingface/
+~/.cache/torch/
+~/.cache/tts/
+~/.cache/transformers/
+*.zip
+*.tar
+*.tar.gz
+
+# --- Audio and TTS output files ---
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.webm
+
+# --- Text / transcript outputs ---
+*.txt
+*.csv
+*.json
+*.srt
+*.vtt
+
+# --- Temporary / debug files ---
+*.bak
+*.old
+*.backup
+nohup.out
+debug.log
+logs/
+*.log
+*.lock
+
+# --- Notebook and dev artifacts ---
+*.ipynb
+*.nbconvert/
+__MACOSX/
+
+# --- Sensitive files (tokens, creds) ---
+*.env
+.env.*
+token.txt
+hf_token.txt
+openai_api_key.txt
+huggingface_token.txt
+secrets.json
+credentials.json
+
+# --- Compiled or build outputs ---
+build/
+dist/
+*.egg-info/
+*.manifest
+*.spec
+
+# =========================================================
+# ✅ Add your model folders to .gitkeep if you need structure
+# =========================================================
