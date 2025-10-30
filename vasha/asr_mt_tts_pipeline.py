@@ -138,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--decoding", choices=["ctc", "rnnt"], default="ctc")
     parser.add_argument("--mt_backend", choices=["indic", "google"], default="indic")
     parser.add_argument("--lid_model", choices=["whisper", "ai4bharat"], default="whisper")
-    parser.add_argument("--ref_audio", type=str, default="samples/deepvoice.wav", help="Reference speaker audio for TTS")
+    parser.add_argument("--ref_audio", type=str, default="samples/soumyavoice.wav", help="Reference speaker audio for TTS")
     parser.add_argument("--fast_tts", action="store_true", help="Enable fast inference mode for long text TTS (XTTS only)")
     parser.add_argument("--tts_prefer", choices=["auto", "xtts", "gtts", "indic"], default="auto", help="Force TTS backend (default auto)")
 
