@@ -1,0 +1,24 @@
+# requirements.txt
+fastapi>=0.95.0
+uvicorn[standard]>=0.21.0
+pymongo>=4.3.0
+python-dotenv>=1.0.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+python-jose[cryptography]>=3.3.0
+requests>=2.28.0
+
+# ASR / model dependencies
+transformers>=4.34.0
+faster-whisper>=0.8.0
+yt-dlp>=2024.1.0
+jiwer>=2.6.0
+sentencepiece>=0.1.98
+ctranslate2>=3.14.0
+
+# Optional / platform-specific (install CPU or CUDA build as needed)
+torch>=2.0.0
+torchaudio>=2.0.1
+
+# Testing & tools
+pytest>=7.0.0

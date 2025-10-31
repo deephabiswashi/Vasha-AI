@@ -1,0 +1,83 @@
+# Node / frontend
+/node_modules
+/frontend/node_modules
+/dist
+/build
+/.vite
+/.parcel-cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment
+.env
+.env.*.local
+/frontend/.env
+/backend/.env
+
+# Lockfiles (keep if you prefer, uncomment to ignore)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+# bun.lockb
+
+# Vite / dev
+/.vite
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+venv/
+env/
+.venv/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Backend artifacts / models / large files
+/backend/chunks/
+backend/chunks/
+**/models/
+**/model*.bin
+**/*.ckpt
+**/*.safetensors
+**/*.pt
+**/*.pth
+**/*.bin
+vocab*
+tokenizer*
+*.tar.gz
+
+# Test / coverage
+.coverage
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.cache/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+uvicorn.log
+
+# Misc
+coverage.xml
+*.db
+*.sqlite3
+.idea/
