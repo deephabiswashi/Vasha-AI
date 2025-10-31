@@ -201,6 +201,7 @@ def translate_joined(
 
 
 # quick CLI test
+
 if __name__ == "__main__":
     # basic demo (quick sanity check)
     demo_src = "eng_Latn"
