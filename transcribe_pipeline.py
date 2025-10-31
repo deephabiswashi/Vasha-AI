@@ -10,8 +10,10 @@ import math
 import subprocess
 import tempfile
 from tqdm import tqdm
+import importlib
 
 sys.path.append(os.getcwd())
+sys.path.append(os.path.join(os.getcwd(), "TTS_Model", "indic-parler-tts"))
 
 from LID_Model.lid import (
     LanguageIdentifier,
@@ -23,6 +25,7 @@ from LID_Model.lid import (
     TARGET_LANGS,
 )
 from ASR_Model.indic_conformer.conformer_asr import IndicConformerASR
+from model_loader import IndicParlerTTS
 
 # ✅ Import full MT stack
 from MT_Model.mt_model import ISO_TO_FLORES, batch_translate_text
@@ -36,7 +39,41 @@ from MT_Model.mt_helper import (
 from MT_Model import mt_debug  # debug module
 
 
-# ✅ Supported languages for IndicConformer (ISO codes only)
+# ===========================
+# TTS integration (new)
+# ===========================
+# We will attempt to import tts_interface from your TTS folder.
+# Many users keep the TTS files in "TTS Model/indic-parler-tts" (note the space).
+# To make imports robust, append that folder to sys.path if it exists and import.
+# ===========================
+# TTS integration (fixed import path)
+# ===========================
+TTS_AVAILABLE = False
+TTS_MODULE = None
+
+try:
+    # Primary expected folder
+    tts_path = os.path.join(os.getcwd(), "TTS_Model", "indic-parler-tts")
+
+    if os.path.isdir(tts_path):
+        if tts_path not in sys.path:
+            sys.path.insert(0, tts_path)
+
+        # ✅ Import directly from tts_interface.py inside the TTS_Model/indic-parler-tts folder
+        import tts_interface as TTS_MODULE
+        TTS_AVAILABLE = True
+
+        print("[INFO] ✅ IndicParler TTS module loaded successfully from TTS_Model/indic-parler-tts")
+    else:
+        print(f"[WARN] Expected TTS folder not found at: {tts_path}")
+
+except Exception as e:
+    print(f"[ERROR] Failed to import TTS module: {e}")
+    TTS_AVAILABLE = False
+
+# ===========================
+# Supported languages for IndicConformer (ISO codes only)
+# ===========================
 CONFORMER_LANGS = {
     'as','bn','brx','doi','gu','hi','kn','kok','ks','mai','ml','mni','mr','ne',
     'or','pa','sa','sat','sd','ta','te','ur'
@@ -305,6 +342,13 @@ if __name__ == "__main__":
     parser.add_argument('--overlap', type=int, default=5)
     parser.add_argument('--workers', type=int, default=1)
     parser.add_argument('--backtranslate', action="store_true", help="Enable back-translation debug mode")
+
+    # --- TTS CLI options ---
+    parser.add_argument('--tts', action='store_true', help="Enable TTS of the translated text (uses TTS Model if available)")
+    parser.add_argument('--tts-play', action='store_true', help="Attempt to play the TTS output locally (requires ffplay or OS player)")
+    parser.add_argument('--tts-desc', type=str, default="", help="Optional natural-language voice description for TTS (overrides defaults)")
+    parser.add_argument('--tts-save', type=str, default="", help="Optional filename to save the TTS output (relative to session dir). Example: translated.mp3")
+
     args = parser.parse_args()
 
     # Session
@@ -498,11 +542,91 @@ if args.backtranslate:
     print("⬅️ Backward:", bt["backward"])
 
 
-    # Summary
-    dialect = detect_dialect(audio_path)
-    spoofed = is_spoofed_audio(audio_path)
-    print("\n📄 Summary:")
-    print(f"🗣 Detected Language: {lang_code}")
-    print(f"🧬 Dialect: {dialect}")
-    print(f"🔒 Spoofing Detected: {'Yes' if spoofed else 'No'}")
-    print(f"📁 Session folder: {session_dir}")
+# -------------------
+# TTS Hook (new) — only runs if user asked with --tts and TTS module available
+# -------------------
+if args.tts:
+    if not TTS_AVAILABLE:
+        print("[WARN] --tts requested but TTS module is not available. Skipping TTS generation.")
+    else:
+        try:
+            # Choose a voice description if user didn't provide one
+            user_desc = args.tts_desc.strip() if args.tts_desc else ""
+            # Simple templates for common target languages (adjust as needed)
+            voice_templates = {
+                "hin": "Sunita speaks in a calm, neutral Hindi voice with clear audio and no background noise.",
+                "hin_Latn": "Sunita speaks in a calm, neutral Hindi voice with clear audio and no background noise.",
+                "eng_Latn": "A neutral English speaker speaks with a clear, moderately-paced British/Indian-accented voice.",
+                "tam": "Jaya speaks in a calm Tamil voice with natural prosody and clear audio.",
+                "tel": "Prakash speaks in a calm Telugu voice with natural prosody and clear audio.",
+                "kan": "Suresh speaks in a calm Kannada voice with clear audio and no background noise.",
+                # generic fallback
+                "default": "The speaker speaks naturally in clear audio with no background noise."
+            }
+
+            # pick template by target Flores code (tgt_lang may be an ISO/FLORES code)
+            # try simple match by prefix
+            desc = user_desc or voice_templates.get(tgt_lang, None)
+            if desc is None:
+                # try mapping languages by common substrings
+                if tgt_lang.startswith("hin") or tgt_lang.startswith("hi"):
+                    desc = voice_templates["hin"]
+                elif tgt_lang.startswith("eng") or tgt_lang.startswith("en"):
+                    desc = voice_templates["eng_Latn"]
+                elif tgt_lang.startswith("tam") or tgt_lang.startswith("ta"):
+                    desc = voice_templates["tam"]
+                elif tgt_lang.startswith("tel") or tgt_lang.startswith("te"):
+                    desc = voice_templates["tel"]
+                else:
+                    desc = voice_templates["default"]
+
+            # output filename
+            if args.tts_save:
+                tts_filename = args.tts_save
+            else:
+                # default: save translated text audio into session folder
+                safe_name = "translated_audio.wav"
+                tts_filename = safe_name
+
+            tts_out_path = os.path.join(session_dir, tts_filename)
+
+            print(f"\n🔊 Generating TTS (saving to {tts_out_path}) ...")
+            # tts_interface exposes synthesize_to_file(text, description, save_path)
+            audio_np, sr = TTS_MODULE.synthesize_to_file(translated, description=desc, save_path=tts_out_path)
+            print(f"[OK] TTS generated: {tts_out_path} (sr={sr})")
+
+            # Optional playback
+            if args.tts_play:
+                # Use ffplay (part of ffmpeg) if present, else attempt platform-specific playback
+                ffplay = shutil.which("ffplay")
+                if ffplay:
+                    print("[INFO] Playing audio with ffplay...")
+                    try:
+                        subprocess.run([ffplay, "-nodisp", "-autoexit", "-loglevel", "error", tts_out_path], check=False)
+                    except Exception as e:
+                        print(f"[WARN] ffplay failed to play audio: {e}")
+                else:
+                    # Try OS default player
+                    try:
+                        if sys.platform.startswith("win"):
+                            os.startfile(tts_out_path)
+                        elif sys.platform.startswith("darwin"):
+                            subprocess.run(["open", tts_out_path], check=False)
+                        else:
+                            subprocess.run(["xdg-open", tts_out_path], check=False)
+                    except Exception as e:
+                        print(f"[WARN] Failed to launch OS player: {e}")
+
+        except Exception as e:
+            print(f"[ERROR] TTS generation failed: {e}")
+            # do not raise — allow pipeline to finish
+
+
+# Summary
+dialect = detect_dialect(audio_path)
+spoofed = is_spoofed_audio(audio_path)
+print("\n📄 Summary:")
+print(f"🗣 Detected Language: {lang_code}")
+print(f"🧬 Dialect: {dialect}")
+print(f"🔒 Spoofing Detected: {'Yes' if spoofed else 'No'}")
+print(f"📁 Session folder: {session_dir}")
