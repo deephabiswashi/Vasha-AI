@@ -8,6 +8,9 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 translator = Translator()
 
+# Meta NLLB-200 Model
+NLLB_MODEL_NAME = "facebook/nllb-200-distilled-1.3B"
+
 # Optional IndicProcessor
 try:
     from IndicTransToolkit.processor import IndicProcessor
@@ -33,6 +36,35 @@ INDICTRANS_TO_GOOGLE = {
 
 # Build inverse mapping for ISO->IndicTrans where known
 GOOGLE_TO_INDICTRANS = {v: k for k, v in INDICTRANS_TO_GOOGLE.items()}
+
+# Mapping from common language codes to NLLB flores codes
+# NLLB uses ISO 639-3 codes in most cases
+LANG_TO_NLLB = {
+    "en": "eng_Latn", "hi": "hin_Deva", "mr": "mar_Deva", "gu": "guj_Gujr",
+    "bn": "ben_Beng", "pa": "pan_Guru", "as": "asm_Beng", "or": "ory_Orya",
+    "ne": "nep_Deva", "ta": "tam_Taml", "te": "tel_Telu", "kn": "kan_Knda",
+    "ml": "mal_Mlym", "ur": "urd_Arab", "sa": "san_Deva", "ks": "kas_Arab",
+    "sd": "snd_Arab", "brx": "brx_Deva", "doi": "doi_Deva", "sat": "sat_Olck",
+    "gom": "gom_Deva", "mai": "mai_Deva", "mni": "mni_Beng",
+    "es": "spa_Latn", "fr": "fra_Latn", "it": "ita_Latn", "pt": "por_Latn",
+    "de": "deu_Latn", "ru": "rus_Cyrl", "tr": "tur_Latn", "fa": "pes_Arab",
+    "id": "ind_Latn", "ja": "jpn_Jpan", "ko": "kor_Hang", "zh": "zho_Hans",
+    "ar": "arb_Arab",
+    # IndicTrans codes -> NLLB codes (direct pass-through if already in format)
+    "hin_Deva": "hin_Deva", "mar_Deva": "mar_Deva", "guj_Gujr": "guj_Gujr",
+    "ben_Beng": "ben_Beng", "pan_Guru": "pan_Guru", "asm_Beng": "asm_Beng",
+    "ory_Orya": "ory_Orya", "npi_Deva": "nep_Deva", "kas_Arab": "kas_Arab",
+    "kas_Deva": "kas_Arab", "gom_Deva": "gom_Deva", "mai_Deva": "mai_Deva",
+    "snd_Arab": "snd_Arab", "snd_Deva": "snd_Arab", "san_Deva": "san_Deva",
+    "urd_Arab": "urd_Arab", "brx_Deva": "brx_Deva", "doi_Deva": "doi_Deva",
+    "sat_Olck": "sat_Olck", "tam_Taml": "tam_Taml", "tel_Telu": "tel_Telu",
+    "kan_Knda": "kan_Knda", "mal_Mlym": "mal_Mlym", "mni_Beng": "mni_Beng",
+    "mni_Mtei": "mni_Beng", "eng_Latn": "eng_Latn", "spa_Latn": "spa_Latn",
+    "fra_Latn": "fra_Latn", "ita_Latn": "ita_Latn", "por_Latn": "por_Latn",
+    "deu_Latn": "deu_Latn", "rus_Cyrl": "rus_Cyrl", "tur_Latn": "tur_Latn",
+    "pes_Arab": "pes_Arab", "ind_Latn": "ind_Latn", "jpn_Jpan": "jpn_Jpan",
+    "kor_Hang": "kor_Hang", "zho_Hans": "zho_Hans", "arb_Arab": "arb_Arab",
+}
 
 def normalize_code_for_google(code: str) -> str:
     if not code:
@@ -70,9 +102,43 @@ def normalize_code_for_indictrans(code: str) -> str:
     return fallback.get(code, "eng_Latn")
 
 
-def split_into_sentences(text: str) -> List[str]:
-    sentences = re.split(r'(?<=[.!?।])\s+', text)
+def _split_into_sentences(text: str) -> List[str]:
+    """Split text into sentences for batch processing."""
+    text = re.sub(r"\s+", " ", text).strip()
+    sentences = re.split(r'(?<=[\.\?\!।])\s+', text)
     return [s.strip() for s in sentences if s.strip()]
+
+def _group_sentences(sentences: List[str], char_limit: int = 2000) -> List[str]:
+    """Group sentences into chunks that respect character limits."""
+    chunks, cur, cur_len = [], [], 0
+    for s in sentences:
+        if cur_len + len(s) + 1 <= char_limit:
+            cur.append(s)
+            cur_len += len(s) + 1
+        else:
+            if cur:
+                chunks.append(" ".join(cur))
+            cur, cur_len = [s], len(s)
+    if cur:
+        chunks.append(" ".join(cur))
+    return chunks
+
+def split_into_sentences(text: str) -> List[str]:
+    """Legacy function for backward compatibility."""
+    return _split_into_sentences(text)
+
+def normalize_code_for_nllb(code: str) -> str:
+    """Convert language codes to NLLB flores codes."""
+    if not code:
+        return "eng_Latn"
+    if code in LANG_TO_NLLB:
+        return LANG_TO_NLLB[code]
+    # Fallback: try to extract base code
+    base_code = code.split("_")[0] if "_" in code else code
+    if base_code in LANG_TO_NLLB:
+        return LANG_TO_NLLB[base_code]
+    # Default fallback
+    return "eng_Latn"
 
 
 def translate_google(texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
@@ -86,6 +152,59 @@ def translate_google(texts: List[str], src_lang: str, tgt_lang: str) -> List[str
         except Exception:
             outputs.append(t)
     return outputs
+
+# Cache for NLLB model and tokenizer to avoid reloading
+_nllb_tokenizer = None
+_nllb_model = None
+
+def _load_nllb_model():
+    """Lazy load NLLB model and tokenizer."""
+    global _nllb_tokenizer, _nllb_model
+    if _nllb_tokenizer is None or _nllb_model is None:
+        _nllb_tokenizer = AutoTokenizer.from_pretrained(NLLB_MODEL_NAME, trust_remote_code=True)
+        _nllb_model = AutoModelForSeq2SeqLM.from_pretrained(
+            NLLB_MODEL_NAME,
+            trust_remote_code=True,
+            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+        ).to(DEVICE)
+    return _nllb_tokenizer, _nllb_model
+
+def translate_nllb(texts: List[str], src_lang: str, tgt_lang: str) -> List[str]:
+    """Translate using Meta NLLB-200 model."""
+    src_flores = normalize_code_for_nllb(src_lang)
+    tgt_flores = normalize_code_for_nllb(tgt_lang)
+    
+    try:
+        tokenizer, model = _load_nllb_model()
+        
+        # Set source language for tokenizer
+        if hasattr(tokenizer, 'src_lang'):
+            tokenizer.src_lang = src_flores
+        
+        # Get target language token ID
+        if hasattr(tokenizer, 'lang_code_to_id') and tgt_flores in tokenizer.lang_code_to_id:
+            tgt_lang_id = tokenizer.lang_code_to_id[tgt_flores]
+        else:
+            # Fallback: try to get from tokenizer's convert_tokens_to_ids or use default
+            raise ValueError(f"Target language code {tgt_flores} not found in NLLB tokenizer")
+        
+        translations = []
+        for text in texts:
+            inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True).to(DEVICE)
+            with torch.no_grad():
+                generated_tokens = model.generate(
+                    **inputs,
+                    forced_bos_token_id=tgt_lang_id,
+                    max_length=1024,
+                    num_beams=5,
+                )
+            translated = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+            translations.append(translated)
+        
+        return translations
+    except Exception as e:
+        print(f"⚠️ NLLB translation error: {e}")
+        raise
 
 
 MODEL_MAP = {
@@ -132,22 +251,63 @@ def translate_indictrans(texts: List[str], src_lang: str, tgt_lang: str) -> List
     return translations
 
 
+def translate_text(text: str, src_lang: str, tgt_lang: str, mt_model_choice: str = "auto") -> str:
+    """Translate text using specified model with automatic chunking for long texts."""
+    sentences = _split_into_sentences(text)
+    chunks = _group_sentences(sentences, char_limit=1800)
+    
+    outputs = []
+    for chunk in chunks:
+        try:
+            if mt_model_choice == "google":
+                chunk_sentences = _split_into_sentences(chunk)
+                out_list = translate_google(chunk_sentences, src_lang, tgt_lang)
+                out = " ".join(out_list)
+            elif mt_model_choice == "indictrans":
+                chunk_sentences = _split_into_sentences(chunk)
+                out_list = translate_indictrans(chunk_sentences, src_lang, tgt_lang)
+                out = " ".join(out_list)
+            elif mt_model_choice == "nllb":
+                chunk_sentences = _split_into_sentences(chunk)
+                out_list = translate_nllb(chunk_sentences, src_lang, tgt_lang)
+                out = " ".join(out_list)
+            else:  # auto - default to indictrans
+                chunk_sentences = _split_into_sentences(chunk)
+                out_list = translate_indictrans(chunk_sentences, src_lang, tgt_lang)
+                out = " ".join(out_list)
+            outputs.append(out)
+        except Exception as e:
+            print(f"⚠️ Batch translation error on chunk: {e}")
+            outputs.append("[translation_error]")
+    return " ".join(outputs).strip()
+
 def translate_with_fallback(text: str, src_lang: str, tgt_lang: str, primary: str = "indictrans"):
-    sentences = split_into_sentences(text)
+    """Translate with automatic fallback if primary model fails."""
     try:
-        print(f"\n🔁 MT request: primary={primary} src={src_lang} tgt={tgt_lang} sentences={len(sentences)}")
+        print(f"\n🔁 MT request: primary={primary} src={src_lang} tgt={tgt_lang}")
         if primary == "google":
-            primary_out = translate_google(sentences, src_lang, tgt_lang)
-        else:
-            primary_out = translate_indictrans(sentences, src_lang, tgt_lang)
-        return " ".join(primary_out), primary
-    except Exception:
-        fallback = "indictrans" if primary == "google" else "google"
-        print(f"⚠️ Primary MT failed, falling back to {fallback}")
-        if fallback == "google":
-            fb_out = translate_google(sentences, src_lang, tgt_lang)
-        else:
-            fb_out = translate_indictrans(sentences, src_lang, tgt_lang)
-        return " ".join(fb_out), fallback
+            translated = translate_text(text, src_lang, tgt_lang, mt_model_choice="google")
+        elif primary == "nllb":
+            translated = translate_text(text, src_lang, tgt_lang, mt_model_choice="nllb")
+        else:  # indictrans or default
+            translated = translate_text(text, src_lang, tgt_lang, mt_model_choice="indictrans")
+        return translated, primary
+    except Exception as e:
+        print(f"⚠️ Primary MT ({primary}) failed: {e}, falling back to google")
+        # For NLLB, fallback to Google. For others, fallback to Google too.
+        try:
+            fb_out = translate_text(text, src_lang, tgt_lang, mt_model_choice="google")
+            return fb_out, "google"
+        except Exception as e2:
+            print(f"⚠️ Fallback Google also failed: {e2}")
+            # Last resort: try indictrans if primary wasn't indictrans
+            if primary != "indictrans":
+                try:
+                    fb_out = translate_text(text, src_lang, tgt_lang, mt_model_choice="indictrans")
+                    return fb_out, "indictrans"
+                except Exception as e3:
+                    print(f"⚠️ All translation methods failed: {e3}")
+                    raise
+            raise
 
 

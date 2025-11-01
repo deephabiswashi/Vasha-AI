@@ -885,7 +885,7 @@ async def mt_translate(payload: dict):
     text = payload.get("text", "")
     src_lang = payload.get("src_lang", "eng_Latn")
     tgt_lang = payload.get("tgt_lang", "hin_Deva")
-    model = payload.get("model", "indictrans")  # 'google' or 'indictrans'
+    model = payload.get("model", "indictrans")  # 'google', 'indictrans', or 'nllb'
     if not text or not tgt_lang:
         raise HTTPException(status_code=400, detail="'text' and 'tgt_lang' are required")
     try:

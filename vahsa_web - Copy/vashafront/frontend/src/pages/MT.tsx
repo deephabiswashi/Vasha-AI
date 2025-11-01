@@ -15,7 +15,7 @@ export default function MT() {
   const audioUrl: string | null = state.audioUrl || null
   const [srcLang, setSrcLang] = useState<string>(language || "en")
   const [tgtLang, setTgtLang] = useState<string>("hi")
-  const [model, setModel] = useState<'google' | 'indictrans'>("indictrans")
+  const [model, setModel] = useState<'google' | 'indictrans' | 'nllb'>("indictrans")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +79,10 @@ export default function MT() {
                   <label className="text-sm flex items-center gap-1">
                     <input type="radio" name="mt-model" checked={model==='google'} onChange={() => setModel('google')} />
                     Google
+                  </label>
+                  <label className="text-sm flex items-center gap-1">
+                    <input type="radio" name="mt-model" checked={model==='nllb'} onChange={() => setModel('nllb')} />
+                    Meta NLLB
                   </label>
                 </div>
               </div>

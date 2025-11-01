@@ -68,13 +68,21 @@ def asr_mt_tts_pipeline(audio=None, mic=False, youtube=None, duration=10,
         decoding=decoding, lid_model=lid_model,
     )
 
-    # ✅ Fix wrong Whisper LID detection (common mislabels)
+    # 🌍 Auto-detect script from transcription (fallback after ASR)
     if re.search(r"[\u4e00-\u9fff]", transcription):
-        lang_code = "zho_Hans"
+        lang_code = "zho_Hans"      # Chinese
     elif re.search(r"[\u3040-\u30ff]", transcription):
-        lang_code = "jpn_Jpan"
+        lang_code = "jpn_Jpan"      # Japanese
     elif re.search(r"[\uac00-\ud7af]", transcription):
-        lang_code = "kor_Hang"
+        lang_code = "kor_Hang"      # Korean
+    elif re.search(r"[\u0400-\u04FF]", transcription):
+        lang_code = "rus_Cyrl"      # Russian (Cyrillic)
+    elif re.search(r"[\u0900-\u097F]", transcription):
+        lang_code = "hin_Deva"      # Hindi / Devanagari
+    elif re.search(r"[\u0980-\u09FF]", transcription):
+        lang_code = "ben_Beng"      # Bengali / Assamese
+    elif re.search(r"[\u0B00-\u0B7F]", transcription):
+        lang_code = "ory_Orya"      # Odia
 
     print("\n📝 Raw Transcription:", transcription)
     print("🌐 Detected / Normalized Source Language:", lang_code)

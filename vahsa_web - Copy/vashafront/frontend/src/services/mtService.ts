@@ -6,7 +6,7 @@ export interface MTResponse {
   translation: string;
   src_lang: string;
   tgt_lang: string;
-  model_used: 'google' | 'indictrans';
+  model_used: 'google' | 'indictrans' | 'nllb';
 }
 
 class MTService {
@@ -14,7 +14,7 @@ class MTService {
     text: string,
     srcLang: string,
     tgtLang: string,
-    model: 'google' | 'indictrans'
+    model: 'google' | 'indictrans' | 'nllb'
   ): Promise<MTResponse> {
     const res = await fetch(`${API_BASE_URL}/mt/translate`, {
       method: 'POST',
