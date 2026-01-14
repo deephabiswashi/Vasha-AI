@@ -12,4 +12,5 @@ transformers
 onnx
 onnxruntime
 onnxruntime-gpu
+TTS==0.22.0
 

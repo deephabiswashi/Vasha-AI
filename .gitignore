@@ -52,6 +52,8 @@ recorded.wav
 youtube_cache/
 sessions/
 chunks_*/
+TTS_Model/tts_cache/
+output_tts/
 
 # -----------------------
 # ⚙️ Model Caches / Checkpoints

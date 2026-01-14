@@ -13,7 +13,6 @@ from tqdm import tqdm
 import importlib
 
 sys.path.append(os.getcwd())
-sys.path.append(os.path.join(os.getcwd(), "TTS_Model", "indic-parler-tts"))
 
 from LID_Model.lid import (
     LanguageIdentifier,
@@ -25,7 +24,6 @@ from LID_Model.lid import (
     TARGET_LANGS,
 )
 from ASR_Model.indic_conformer.conformer_asr import IndicConformerASR
-from model_loader import IndicParlerTTS
 
 # ✅ Import full MT stack
 from MT_Model.mt_model import ISO_TO_FLORES, batch_translate_text
@@ -39,36 +37,15 @@ from MT_Model.mt_helper import (
 from MT_Model import mt_debug  # debug module
 
 
-# ===========================
-# TTS integration (new)
-# ===========================
-# We will attempt to import tts_interface from your TTS folder.
-# Many users keep the TTS files in "TTS Model/indic-parler-tts" (note the space).
-# To make imports robust, append that folder to sys.path if it exists and import.
-# ===========================
-# TTS integration (fixed import path)
-# ===========================
-TTS_AVAILABLE = False
-TTS_MODULE = None
-
+"""
+Unified TTS integration using `TTS_Model.tts_common.tts_handler.run_universal_tts`.
+This selects between Indic-Parler, Coqui XTTS, and gTTS with caching and chunking.
+"""
+TTS_AVAILABLE = True
 try:
-    # Primary expected folder
-    tts_path = os.path.join(os.getcwd(), "TTS_Model", "indic-parler-tts")
-
-    if os.path.isdir(tts_path):
-        if tts_path not in sys.path:
-            sys.path.insert(0, tts_path)
-
-        # ✅ Import directly from tts_interface.py inside the TTS_Model/indic-parler-tts folder
-        import tts_interface as TTS_MODULE
-        TTS_AVAILABLE = True
-
-        print("[INFO] ✅ IndicParler TTS module loaded successfully from TTS_Model/indic-parler-tts")
-    else:
-        print(f"[WARN] Expected TTS folder not found at: {tts_path}")
-
+    from TTS_Model.tts_common.tts_handler import run_universal_tts
 except Exception as e:
-    print(f"[ERROR] Failed to import TTS module: {e}")
+    print(f"[WARN] TTS handler unavailable: {e}")
     TTS_AVAILABLE = False
 
 # ===========================
@@ -591,9 +568,20 @@ if args.tts:
             tts_out_path = os.path.join(session_dir, tts_filename)
 
             print(f"\n🔊 Generating TTS (saving to {tts_out_path}) ...")
-            # tts_interface exposes synthesize_to_file(text, description, save_path)
-            audio_np, sr = TTS_MODULE.synthesize_to_file(translated, description=desc, save_path=tts_out_path)
-            print(f"[OK] TTS generated: {tts_out_path} (sr={sr})")
+            # Use the universal TTS which auto-picks IndicParler / XTTS / gTTS
+            final_tts_path = run_universal_tts(
+                text=translated,
+                target_lang=tgt_lang,
+                reference_audio=None,
+                prefer="auto",
+                out_dir=session_dir,
+                out_name=tts_filename,
+                hf_token=os.getenv("HF_TOKEN"),
+                device=("cuda" if torch.cuda.is_available() else "cpu"),
+                max_chunk_chars=700,
+                use_cache=True,
+            )
+            print(f"[OK] TTS generated: {final_tts_path}")
 
             # Optional playback
             if args.tts_play:
@@ -602,18 +590,18 @@ if args.tts:
                 if ffplay:
                     print("[INFO] Playing audio with ffplay...")
                     try:
-                        subprocess.run([ffplay, "-nodisp", "-autoexit", "-loglevel", "error", tts_out_path], check=False)
+                        subprocess.run([ffplay, "-nodisp", "-autoexit", "-loglevel", "error", final_tts_path], check=False)
                     except Exception as e:
                         print(f"[WARN] ffplay failed to play audio: {e}")
                 else:
                     # Try OS default player
                     try:
                         if sys.platform.startswith("win"):
-                            os.startfile(tts_out_path)
+                            os.startfile(final_tts_path)
                         elif sys.platform.startswith("darwin"):
-                            subprocess.run(["open", tts_out_path], check=False)
+                            subprocess.run(["open", final_tts_path], check=False)
                         else:
-                            subprocess.run(["xdg-open", tts_out_path], check=False)
+                            subprocess.run(["xdg-open", final_tts_path], check=False)
                     except Exception as e:
                         print(f"[WARN] Failed to launch OS player: {e}")
 

@@ -1,7 +1,9 @@
 # 🎧 Vasha-AI — Real-Time AI Speech Translation System
 
 > 🧠 **Vasha-AI** is an intelligent multilingual pipeline that performs **real-time speech-to-speech translation** across 200+ global and Indic languages.
-> It integrates **Automatic Speech Recognition (ASR)**, **Language Identification (LID)**, and **Machine Translation (MT)** with features like **NER-preservation**, **code-mixed handling**, **transliteration**, and **spoof detection**.
+> It integrates **Automatic Speech Recognition (ASR)**, **Language Identification (LID)**, **Machine Translation (MT)**, and **Text-to-Speech (TTS)** with features like **NER-preservation**, **code-mixed handling**, **transliteration**, and **spoof detection**.
+
+This repository hosts the **core ASR/LID/MT/TTS models and pipeline** that power the production Vasha web experience.
 
 ---
 
@@ -19,6 +21,12 @@
 * Meta **NLLB (No Language Left Behind)**
 * AI4Bharat **IndicTrans2**
 * **Google Translate** API wrapper
+
+✅ **Text-to-Speech (TTS)** via a unified backend:
+
+* Indic-Parler (Indic voices)
+* Coqui **XTTS**
+* **gTTS** with caching & chunking
 
 ✅ **Smart Preprocessing**:
 
@@ -47,42 +55,38 @@
 ## 🧩 Project Directory Structure
 
 ```
-Vasha-AI/
+Vasha-Models/
 │
 ├── ASR_Model/
-│   ├── faster-whisper/              # Faster-Whisper backend
-│   ├── indic_conformer/             # AI4Bharat IndicConformer ASR
-│   │   ├── conformer_asr.py
-│   │   └── __init__.py
-│   ├── whisper/                     # Whisper wrapper
-│   └── __init__.py
+│   └── indic_conformer/
+│       └── conformer_asr.py         # AI4Bharat IndicConformer ASR wrapper
 │
 ├── LID_Model/
 │   ├── lid.py                       # Language ID + dialect detection
 │   ├── spoof_detection.py           # Spoof detection
 │   ├── requirements.txt
-│   └── __init__.py
 │
 ├── MT_Model/
-│   ├── IndicTrans2/                 # AI4Bharat IndicTrans2 model
-│   ├── nllb-3.3B/                   # Meta NLLB 3.3B model weights
-│   ├── Open-NLLB/                   # Optional fine-tuned NLLB variant
-│   ├── mt_model.py                  # Unified translation model loader
+│   ├── mt_model.py                  # Unified translation model loader (NLLB, etc.)
 │   ├── mt_helper.py                 # Menu + progress bar integration
 │   ├── mt_google.py                 # Google Translate API
 │   ├── mt_preprocessor.py           # NER, transliteration, code-mix logic
 │   ├── mt_debug.py                  # Back-translation utilities
-│   └── __init__.py
+│   └── nllb-3.3B/                   # Meta NLLB model assets
+│       ├── README.md
+│       └── sentencepiece.bpe.model
 │
-├── Audio_TestWAV/                   # Sample WAVs
-├── sessions/                        # Saved transcriptions & translations
-├── youtube_cache/                   # Cached YouTube WAVs
+├── TTS_Model/
+│   ├── tts_common/                  # Shared TTS interface & utilities
+│   └── tts_cache/                   # Cached synthesized audio
 │
-├── transcribe_pipeline.py           # Main entry-point script
+├── diagrams/                        # Architecture & speech-translation flowcharts
+├── output_tts/                      # Example synthesized waveforms
+│
+├── transcribe_pipeline.py           # Main end-to-end pipeline script
 ├── gpusage.py                       # GPU usage tracker
-├── recorded.wav                     # Sample audio
 ├── requirements.txt                 # Global dependencies
-└── README.md                        # You're reading this file
+└── readme.md                        # You're reading this file
 ```
 
 ---
@@ -110,6 +114,25 @@ Vasha-AI/
           ├── Saved Transcription Files
           └── Optional Back-Translation Debug
 ```
+
+---
+
+## 🖼 Architecture & Flowcharts
+
+![Vasha model pipeline diagram](diagrams/model_pipeline.png)
+
+This diagram shows the **high-level model pipeline**, starting from raw audio input and flowing through LID, ASR, MT, and optional TTS to produce translated speech and text.
+
+![End-to-end speech translation diagram](diagrams/speech_translation.png)
+
+This diagram focuses on the **end-to-end speech translation experience**, illustrating how user audio moves through the backend services to the production web frontend.
+
+---
+
+## 🌐 Production Website & Frontend
+
+- **Production web app repo**: [`vasha-website`](https://github.com/SOUMYADEEPDUTTACODER/vasha-website) — TypeScript + Vite frontend and Python backend wiring for deploying these models in production.  
+- **Live website**: [`https://vasha-website.vercel.app/`](https://vasha-website.vercel.app/) — main Vasha AI experience powered by this models repository.
 
 ---
 
@@ -260,6 +283,7 @@ openai-whisper
 
 **Deep Habiswashi**
 **Soumyadeep Dutta**
+**Sudeshna Mohanty**
 
 
 ---
