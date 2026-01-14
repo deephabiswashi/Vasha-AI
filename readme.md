@@ -7,6 +7,13 @@ This repository hosts the **core ASR/LID/MT/TTS models and pipeline** that power
 
 ---
 
+## 📺 Demo Video
+
+You can watch a short **demo of Vasha-AI in action** here:  
+[Vasha-AI Demo on YouTube](https://youtu.be/16qauRDXsOg)
+
+---
+
 ## 🌍 Key Features
 
 ✅ **Real-Time Language Identification (LID)**
