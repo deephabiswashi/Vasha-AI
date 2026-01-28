@@ -11,6 +11,26 @@ import subprocess
 import tempfile
 from tqdm import tqdm
 import importlib
+import warnings
+from transformers import logging as hf_logging
+
+# Silence verbose HF/model logs during TTS selection/output
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+hf_logging.set_verbosity_error()
+warnings.filterwarnings("ignore")
+
+import logging, warnings, os
+from transformers import logging as hf_logging
+
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+hf_logging.set_verbosity_error()
+warnings.filterwarnings("ignore")
+
+# Optional: silence other loggers
+for name in list(logging.root.manager.loggerDict):
+    logging.getLogger(name).setLevel(logging.ERROR)
 
 sys.path.append(os.getcwd())
 
@@ -105,6 +125,21 @@ def user_select_asr(lang_code):
         return selected
 
 
+def user_select_tts():
+    """CLI prompt for TTS model: 1=Coqui/XTTS, 2=gTTS, 3=IndicParler."""
+    print("\n🔊 Select TTS Model:")
+    print("1. Coqui TTS / XTTS (multilingual, voice cloning)")
+    print("2. gTTS (Google, fast, many languages)")
+    print("3. IndicParler TTS (Indian languages, natural)")
+    choice = input("👉 Enter 1, 2 or 3 (default=1): ").strip() or "1"
+    if choice == "2":
+        return "gtts"
+    elif choice == "3":
+        return "indic"
+    else:
+        return "xtts"
+
+
 def download_youtube_audio_cached(url):
     cache_dir = os.path.join(os.getcwd(), "youtube_cache")
     os.makedirs(cache_dir, exist_ok=True)
@@ -189,7 +224,12 @@ def make_overlapped_chunks(audio_path, chunk_length=120, overlap=5):
 
 
 # ---------- Whisper + faster-whisper workers ----------
-def _transcribe_one_chunk_whisper(model, chunk_path, lang_input, use_word_ts=True):
+def _transcribe_one_chunk_whisper(model, chunk_path, lang_input, use_word_ts=False):
+    """
+    use_word_ts=False avoids Whisper's Triton-based timing (median_filter, DTW).
+    On Windows Triton often fails -> slow CPU fallbacks + warnings. Segment-level
+    timing is still returned; _stitch_segments does not need word-level.
+    """
     res = model.transcribe(
         chunk_path,
         task="transcribe",
@@ -200,7 +240,7 @@ def _transcribe_one_chunk_whisper(model, chunk_path, lang_input, use_word_ts=Tru
     return {'segments': res.get('segments', []), 'text': res.get('text', '')}
 
 
-def _transcribe_one_chunk_faster(fw_model, chunk_path, lang_input, beam_size=5, use_word_ts=True):
+def _transcribe_one_chunk_faster(fw_model, chunk_path, lang_input, beam_size=5, use_word_ts=False):
     segments_gen, info = fw_model.transcribe(
         chunk_path,
         beam_size=beam_size,
@@ -322,9 +362,11 @@ if __name__ == "__main__":
 
     # --- TTS CLI options ---
     parser.add_argument('--tts', action='store_true', help="Enable TTS of the translated text (uses TTS Model if available)")
+    parser.add_argument('--tts-model', choices=['xtts', 'gtts', 'indic'], default=None, help="TTS model: xtts (Coqui/XTTS), gtts, or indic (IndicParler). If omitted, prompts interactively.")
     parser.add_argument('--tts-play', action='store_true', help="Attempt to play the TTS output locally (requires ffplay or OS player)")
     parser.add_argument('--tts-desc', type=str, default="", help="Optional natural-language voice description for TTS (overrides defaults)")
     parser.add_argument('--tts-save', type=str, default="", help="Optional filename to save the TTS output (relative to session dir). Example: translated.mp3")
+    parser.add_argument('--tts-speaker-wav', type=str, default="", help="Path to a reference WAV file of YOUR voice (used by XTTS v2 for voice cloning across all languages).")
 
     args = parser.parse_args()
 
@@ -377,6 +419,14 @@ if __name__ == "__main__":
         mt_model_choice = "indic"
     elif mt_choice == "3":
         mt_model_choice = "google"
+        # Ensure googletrans is available; otherwise fall back to NLLB to avoid [translation_error]
+        try:
+            from googletrans import Translator
+            Translator()
+        except Exception:
+            print("⚠️ googletrans not available. Install with: pip install googletrans==4.0.0-rc1")
+            print("   Falling back to Meta-NLLB for this run. (Or re-run and choose MT mode 1 or 2.)")
+            mt_model_choice = "nllb"
     elif mt_choice == "4":
         mode = "transliterate"
     elif mt_choice == "5":
@@ -495,15 +545,15 @@ else:
         code_mixed_english_action=code_mixed_english_action,
     )
 
-    # ✅ Save translation
-    translation_file = os.path.join(session_dir, f"translation_{lang_code}_to_{tgt_lang}.txt")
-    with open(translation_file,"w",encoding="utf-8") as f:
-        f.write(translated)
-    print("\n💬 Translation:")
-    print(translated)
-    print(f"💾 Translation saved to: {translation_file}")
+# ✅ Save translation (for all MT/debug modes)
+translation_file = os.path.join(session_dir, f"translation_{lang_code}_to_{tgt_lang}.txt")
+with open(translation_file, "w", encoding="utf-8") as f:
+    f.write(translated)
+print("\n💬 Translation:")
+print(translated)
+print(f"💾 Translation saved to: {translation_file}")
 
-    # ✅ CLI-based optional back-translation debug
+# ✅ CLI-based optional back-translation debug
 if args.backtranslate:
     bt = mt_debug.back_translate(
         transcribed,
@@ -527,6 +577,10 @@ if args.tts:
         print("[WARN] --tts requested but TTS module is not available. Skipping TTS generation.")
     else:
         try:
+            # CLI choice: which TTS model to use (1=Coqui/XTTS, 2=gTTS, 3=IndicParler)
+            # Use --tts-model if provided, else prompt
+            tts_model_choice = args.tts_model if args.tts_model else user_select_tts()
+
             # Choose a voice description if user didn't provide one
             user_desc = args.tts_desc.strip() if args.tts_desc else ""
             # Simple templates for common target languages (adjust as needed)
@@ -567,13 +621,12 @@ if args.tts:
 
             tts_out_path = os.path.join(session_dir, tts_filename)
 
-            print(f"\n🔊 Generating TTS (saving to {tts_out_path}) ...")
-            # Use the universal TTS which auto-picks IndicParler / XTTS / gTTS
+            print(f"\n🔊 Generating TTS with {tts_model_choice} (saving to {tts_out_path}) ...")
             final_tts_path = run_universal_tts(
                 text=translated,
                 target_lang=tgt_lang,
-                reference_audio=None,
-                prefer="auto",
+                reference_audio=(args.tts_speaker_wav.strip() or None),
+                prefer=tts_model_choice,
                 out_dir=session_dir,
                 out_name=tts_filename,
                 hf_token=os.getenv("HF_TOKEN"),

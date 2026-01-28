@@ -40,14 +40,74 @@ def synthesize_indic_parler(text: str, description: str = "", out_path: str = "o
 def _get_coqui_instance(model_name="tts_models/multilingual/multi-dataset/xtts_v2", device=None):
     """
     Return a Coqui TTS instance (TTS api). Keep as singleton.
+    Fixes PyTorch 2.6+ compatibility issue with weights_only parameter.
     """
     global _COQUI_TTS_INSTANCE
     if _COQUI_TTS_INSTANCE is None:
+        # Fix for PyTorch 2.6+: Patch TTS library's load_fsspec to use weights_only=False
+        # This is needed because Coqui TTS checkpoints contain custom classes that require
+        # weights_only=False (PyTorch 2.6 changed default from False to True)
+        try:
+            import TTS.utils.io as tts_io
+            
+            # Patch load_fsspec if not already patched (singleton pattern)
+            if not hasattr(tts_io, '_tts_patched_load_fsspec'):
+                original_load_fsspec = tts_io.load_fsspec
+                
+                def patched_load_fsspec(path, map_location=None, **kwargs):
+                    """Patched load_fsspec that explicitly sets weights_only=False for PyTorch 2.6+"""
+                    kwargs['weights_only'] = False
+                    return original_load_fsspec(path, map_location=map_location, **kwargs)
+                
+                tts_io.load_fsspec = patched_load_fsspec
+                tts_io._tts_patched_load_fsspec = True
+                print("[INFO] Patched TTS.utils.io.load_fsspec for PyTorch 2.6+ compatibility")
+        except Exception as patch_error:
+            print(f"[WARN] Could not patch TTS load_fsspec: {patch_error}")
+            # Will try torch.load patch as fallback
+        
         try:
             from TTS.api import TTS
         except Exception as e:
             raise RuntimeError("Coqui TTS package not installed or broken. Install `TTS` from Coqui.") from e
-        _COQUI_TTS_INSTANCE = TTS(model_name)
+        
+        try:
+            print("[INFO] Loading Coqui TTS model...")
+            _COQUI_TTS_INSTANCE = TTS(model_name)
+            print("[INFO] Coqui TTS model loaded successfully")
+        except Exception as load_error:
+            error_str = str(load_error)
+            # Check if it's a weights_only error
+            if "weights_only" in error_str or "WeightsUnpickler" in error_str:
+                print(f"[WARN] TTS loading failed with weights_only error, trying torch.load patch...")
+                # Fallback: patch torch.load temporarily during loading
+                try:
+                    import torch
+                    original_torch_load = torch.load
+                    
+                    def patched_torch_load(*args, **kwargs):
+                        """Patched torch.load that defaults weights_only=False for TTS"""
+                        if 'weights_only' not in kwargs:
+                            kwargs['weights_only'] = False
+                        return original_torch_load(*args, **kwargs)
+                    
+                    torch.load = patched_torch_load
+                    try:
+                        print("[INFO] Retrying with patched torch.load...")
+                        _COQUI_TTS_INSTANCE = TTS(model_name)
+                        print("[INFO] Coqui TTS model loaded successfully with torch.load patch")
+                    finally:
+                        # Restore original torch.load
+                        torch.load = original_torch_load
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"Failed to load Coqui TTS model. PyTorch 2.6+ compatibility issue. "
+                        f"Original error: {load_error}, Workaround error: {e2}. "
+                        f"Consider downgrading PyTorch to <2.6 or updating Coqui TTS."
+                    ) from e2
+            else:
+                raise
+        
         # Move model to device if possible
         try:
             _COQUI_TTS_INSTANCE.to(device if device else ("cuda" if __import__("torch").cuda.is_available() else "cpu"))
@@ -57,42 +117,48 @@ def _get_coqui_instance(model_name="tts_models/multilingual/multi-dataset/xtts_v
 
 def synthesize_coqui_xtts(text: str, language: str = "en", speaker_wav: Optional[str] = None,
                           out_path: str = "out_xtts.wav", model_name="tts_models/multilingual/multi-dataset/xtts_v2",
-                          device: Optional[str] = None):
+                          device: Optional[str] = None, speaker: Optional[str] = None):
     """
-    Synthesize with Coqui XTTS. Must provide either `speaker_wav` (voice cloning) or `speaker` identifier.
+    Synthesize with Coqui XTTS (XTTS v2).
+
+    IMPORTANT: XTTS v2 voice cloning requires a `speaker_wav` reference audio.
+    (If you want a “default speaker” without providing a voice sample, use a different single-speaker TTS model.)
     Returns (out_path, sampling_rate).
     """
     tts = _get_coqui_instance(model_name=model_name, device=device)
 
     # Coqui API: use `tts_to_file` or `tts` depending on environment.
     # If tts has 'tts_to_file', call that; else attempt tts.tts(...) returning numpy array.
-    if speaker_wav and not os.path.exists(speaker_wav):
-        speaker_wav = None
+    if not speaker_wav:
+        raise ValueError(
+            "XTTS v2 requires a reference voice WAV (`speaker_wav`). "
+            "Record your voice to a .wav file and pass it to the pipeline (see `--tts-speaker-wav`)."
+        )
+    if not os.path.exists(speaker_wav):
+        raise ValueError(f"XTTS speaker_wav not found: {speaker_wav}")
 
-    # prefer tts_to_file which handles multi-sentence
+    # Prefer tts_to_file
     if hasattr(tts, "tts_to_file"):
-        # generate file
         try:
-            tts.tts_to_file(text=text, speaker_wav=speaker_wav, language=language, file_path=out_path)
-            # Coqui defaults often sample rate 24000 or 22050; try to read
+            tts.tts_to_file(
+                text=text,
+                speaker_wav=speaker_wav,
+                language=language,
+                file_path=out_path,
+            )
             try:
-                import soundfile as sf
                 data, sr = sf.read(out_path)
                 return out_path, sr
             except Exception:
                 return out_path, 24000
         except Exception as e:
-            # try fallback tts method (returns array)
-            pass
+            raise RuntimeError(f"Coqui XTTS synthesis failed: {e}") from e
 
-    # fallback: call tts.tts which often returns waveform array
+    # Fallback: array-returning API
     try:
         wav = tts.tts(text=text, speaker_wav=speaker_wav, language=language)
-        # write wav
-        import soundfile as sf
         sr = 24000
         if isinstance(wav, tuple) and len(wav) >= 2:
-            # some tts returns (audio, sr)
             arr, sr = wav[0], int(wav[1])
         else:
             arr = wav

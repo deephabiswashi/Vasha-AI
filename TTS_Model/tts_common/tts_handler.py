@@ -98,8 +98,21 @@ def run_universal_tts(
     # 1) normalize language
     lang_norm = _normalize_lang(target_lang)
 
+    # Auto-detect default speaker for XTTS if none provided
+    if not reference_audio:
+        try:
+            # Look for deep_voicesample.wav in the TTS_Model root (parent of tts_common)
+            _here = os.path.dirname(os.path.abspath(__file__))
+            _default_wav = os.path.join(os.path.dirname(_here), "deep_voicesample.wav")
+            if os.path.exists(_default_wav):
+                reference_audio = _default_wav
+                print(f"[INFO] XTTS: Using default reference audio -> {os.path.basename(_default_wav)}")
+        except Exception:
+            pass
+
     # 2) Decide engine
     engine = None
+    explicit_engine = bool(prefer and str(prefer).lower() != "auto")
     if prefer and prefer != "auto":
         engine = prefer.lower()
     else:
@@ -113,8 +126,17 @@ def run_universal_tts(
             engine = "xtts"
 
     # 3) check cache
+    # Include speaker reference in cache key for XTTS so different voices don't collide
+    desc_for_cache = ""
+    if engine in ("xtts", "coqui", "coqui_xtts") and reference_audio and os.path.exists(reference_audio):
+        try:
+            st = os.stat(reference_audio)
+            desc_for_cache = f"speaker_wav={os.path.basename(reference_audio)}|{st.st_size}|{int(st.st_mtime)}"
+        except Exception:
+            desc_for_cache = f"speaker_wav={os.path.basename(reference_audio)}"
+
     if use_cache:
-        cached = exists_in_cache(text, lang_norm, desc="", engine=engine, base_dir=None, ext=".wav")
+        cached = exists_in_cache(text, lang_norm, desc=desc_for_cache, engine=engine, base_dir=None, ext=".wav")
         if cached:
             # copy cached to out_path (so pipeline always finds it)
             shutil.copyfile(cached, out_path)
@@ -151,8 +173,32 @@ def run_universal_tts(
                     # if conversion fails, return mp3
                     part_paths.append(mp3_path)
         except Exception as e:
-            # If primary engine fails for chunk, try fallback engine order
-            # fallback order: xtts -> indic -> gtts
+            # Log the actual error for debugging
+            import traceback
+            error_msg = f"[ERROR] TTS synthesis failed for chunk {idx} with {engine}: {str(e)}"
+            print(error_msg)
+            print(f"[DEBUG] Full traceback:\n{traceback.format_exc()}")
+            
+            # If user explicitly chose Indic-Parler and it fails, fall back to gTTS so we still return audio.
+            if explicit_engine and engine == "indic":
+                print(f"[WARN] IndicParler-TTS failed, falling back to gTTS for chunk {idx}")
+                try:
+                    mp3_name = f"gtts_fallback_part_{idx:03d}.mp3"
+                    mp3_path = run_gtts(chunk, lang=lang_norm or "en", out_dir=out_dir, out_name=mp3_name)
+                    wav_tmp = os.path.join(out_dir, tmp_name)
+                    try:
+                        convert_mp3_to_wav(mp3_path, wav_tmp)
+                        part_paths.append(wav_tmp)
+                    except Exception:
+                        part_paths.append(mp3_path)
+                    continue
+                except Exception:
+                    # If even the final fallback fails, re-raise to surface the error.
+                    raise
+            # When user explicitly chose another engine, do NOT fall back to others (no XTTS/Indic/gTTS chain).
+            if explicit_engine:
+                raise
+            # If primary engine was "auto" and it fails, try fallback order: xtts -> indic -> gtts
             fallback_used = None
             last_exc = e
             try:
@@ -190,7 +236,7 @@ def run_universal_tts(
     final_path, final_sr = _assemble_wav_parts(part_paths, out_path)
     # 6) save to cache
     try:
-        save_to_cache(final_path, text, lang_norm, desc="", engine=engine)
+        save_to_cache(final_path, text, lang_norm, desc=desc_for_cache, engine=engine)
     except Exception:
         pass
     return final_path
