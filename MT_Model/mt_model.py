@@ -34,7 +34,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # -----------------------------
 # Load NLLB
 # -----------------------------
-print(f"🌍 Loading NLLB model: {NLLB_MODEL_NAME} on {device} ...")
+print(f"[INFO] Loading NLLB model: {NLLB_MODEL_NAME} on {device} ...")
 nllb_tokenizer = AutoTokenizer.from_pretrained(NLLB_MODEL_NAME)
 nllb_model = AutoModelForSeq2SeqLM.from_pretrained(NLLB_MODEL_NAME).to(device)
 

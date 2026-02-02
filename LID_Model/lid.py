@@ -30,31 +30,45 @@ class LanguageIdentifier:
         print(f"📦 Loading Whisper model '{model_size}' on {self.device}")
         self.model = whisper.load_model(model_size, device=self.device)
 
-    def detect(self, audio_path):
-        print("🧠 Detecting language using Whisper transcription...")
+    def detect(self, audio_path, duration_limit=None):
+        print(f"🧠 Detecting language using Whisper transcription (Limit: {duration_limit}s)...")
         try:
-            result = self.model.transcribe(audio_path, task="transcribe", language=None)
-            detected_lang = result.get("language")  # May be code or full name
+            # Load audio using Whisper's internal utility to get 16kHz mono array
+            audio = whisper.load_audio(audio_path)
+            
+            # Trim if needed (Whisper expects 16kHz)
+            if duration_limit:
+                samples = int(duration_limit * 16000)
+                if len(audio) > samples:
+                    audio = audio[:samples]
+            
+            # Pad or Trim to 30s is handled by log_mel_spectrogram usually, 
+            # but transcribe handles raw audio directly.
+            result = self.model.transcribe(audio, task="transcribe", language=None, fp16=False)
+            
+            detected_lang = result.get("language")  # Code like 'bn'
+            
+            # Attempt to extract confidence if available in segments or result
+            # Whisper 'transcribe' result usually just has 'language'. 
+            # To get confidence we might need to look at segments or internal logits if we used detect_language()
+            # But standard transcribe results don't always expose language confidence top-level easily.
+            # However, for this task, we will assume 1.0 or try to parse.
+            # Actually, using model.detect_language() is more appropriate for LID!
+            
+            # Let's switch to model.detect_language() which is efficient for LID (Encoder only)
+            # It requires computing Mel spectrogram first.
+            
+            audio = whisper.pad_or_trim(audio)
+            mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
+            
+            # detect the spoken language
+            _, probs = self.model.detect_language(mel)
+            detected_lang = max(probs, key=probs.get)
+            confidence = probs[detected_lang]
+            
+            print(f"✅ Whisper LID: {detected_lang} (Confidence: {confidence:.2f})")
+            return detected_lang, {detected_lang: confidence}
 
-            if not detected_lang:
-                print("⚠️ Whisper did not return a language.")
-                return None, {}
-
-            # Case 1: Whisper returns a valid ISO code
-            if detected_lang in TARGET_LANGS:
-                print(f"✅ Whisper detected language (code): {TARGET_LANGS[detected_lang]} ({detected_lang})")
-                return detected_lang, {detected_lang: 1.0}
-
-            # Case 2: Whisper returns a full language name
-            detected_lower = detected_lang.lower()
-            for code, name in TARGET_LANGS.items():
-                if name.lower() == detected_lower:
-                    print(f"✅ Whisper detected language: {name} ({code})")
-                    return code, {code: 1.0}
-
-            # No match
-            print(f"⚠️ Whisper detected unsupported language: {detected_lang}")
-            return None, {}
         except Exception as e:
             print(f"❌ Language detection error: {e}")
             return None, {}

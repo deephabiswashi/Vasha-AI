@@ -49,6 +49,7 @@ Thumbs.db
 # -----------------------
 Audio_TestWAV/
 recorded.wav
+deep_voicesample.wav
 youtube_cache/
 sessions/
 chunks_*/
@@ -91,7 +92,7 @@ outputs/
 # ⚡ Environment / Config
 # -----------------------
 *.env
-config.json
+# config.json  <-- Commented out: Needed for model configs (e.g. NLLB). Use .env for secrets.
 config.yaml
 config.yml
 settings.json
@@ -101,4 +102,12 @@ settings.json
 # -----------------------
 test_*.py
 debug_*.py
-*.ipynb_checkpoints/
+
+# -----------------------
+# 🧩 Chrome Extension
+# -----------------------
+chrome_extension/node_modules/
+chrome_extension/dist/
+chrome_extension/build/
+chrome_extension/*.log
+

@@ -143,6 +143,36 @@ This diagram focuses on the **end-to-end speech translation experience**, illust
 
 ---
 
+---
+
+## 🧩 Vasha-AI Chrome Extension (New!)
+
+The project now includes a powerful **Manifest V3 Chrome Extension** that brings Vasha-AI directly to your browser throughout the web.
+
+### ✨ Extension Features
+*   **Real-Time Tab Audio Capture**: Capture audio from YouTube, Twitch, Meet, or any HTML5 audio source.
+*   **Live Translation Overlay**: View translated text in real-time within the extension popup.
+*   **Visual LID Timeline**: A dynamic color-coded timeline that visualizes language changes (e.g., Hindi → English → Bengali) in real-time.
+*   **Mixed Mode**: Capture both **Tab Audio** and **Microphone** simultaneously for interviews or reaction videos.
+*   **State Persistence**: Recording state and transaction history are saved even if the popup closes.
+
+### 🚀 Setting up the Extension
+1.  Open Chrome and navigate to `chrome://extensions`.
+2.  Enable **Developer Mode** (toggle in top right).
+3.  Click **Load Unpacked**.
+4.  Select the `chrome_extension` directory from this repository.
+5.  Pin the **Vasha-AI** icon to your toolbar.
+
+### 🎮 Using the Extension
+1.  Start the backend server: `python vasha_server.py`.
+2.  Open a tab with audio (e.g., a YouTube video).
+3.  Click the Vasha extension icon.
+4.  Select your **Target Language** (e.g., Hindi).
+5.  Click **▶ Start Translating**.
+6.  The extension will capture audio, identify the language, and display the translation instantly.
+
+---
+
 ## ⚙️ Installation
 
 ### 1️⃣ Clone the repository
