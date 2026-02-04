@@ -1,4 +1,8 @@
 whisper
+flask
+flask-cors
+flasgger
+flask-sock
 torch
 torchaudio
 soundfile

@@ -1,4 +1,3 @@
-
 import os
 import sys
 import torch
@@ -6,6 +5,7 @@ import warnings
 import logging
 import tempfile
 import base64
+import json
 from flask import Flask, request, jsonify, send_file, redirect
 from flask_cors import CORS
 from flasgger import Swagger
@@ -48,7 +48,6 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
-
 # --- Swagger Config ---
 swagger_config = {
     "headers": [],
@@ -62,7 +61,7 @@ swagger_config = {
     ],
     "static_url_path": "/flasgger_static",
     "swagger_ui": True,
-    "specs_route": "/docs"  # This makes the UI available at /docs
+    "specs_route": "/docs"
 }
 
 template = {
@@ -87,14 +86,14 @@ CONFORMER_LANGS = {
     'as','bn','brx','doi','gu','hi','kn','kok','ks','mai','ml','mni','mr','ne',
     'or','pa','sa','sat','sd','ta','te','ur'
 }
-WHISPER_LANGS = set(['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar', 'tr', 'id']) # Simplified
+WHISPER_LANGS = set(['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko', 'ar', 'tr', 'id'])
 
-print("🚀 Vasha-AI Server Starting... Models will load on first request.")
+print("Vasha-AI Server Starting... Models will load on first request.")
 
 def get_whisper():
     global WHISPER_MODEL
     if WHISPER_MODEL is None:
-        print("📦 Loading Whisper Model (small)...")
+        print("Loading Whisper Model (small)...")
         WHISPER_MODEL = whisper.load_model("small")
     return WHISPER_MODEL
 
@@ -104,18 +103,17 @@ def get_faster_whisper():
         try:
             from faster_whisper import WhisperModel
             model_size = "large-v3"
-            print(f"⚡ Loading Faster-Whisper Model ({model_size})...")
-            print("   (This helps download the model if it's the first run, which may take several minutes. Please wait.)")
-            
+            print(f"Loading Faster-Whisper Model ({model_size})...")
+            print("First run may download model and take several minutes.")
+
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            # Attempt to free VRAM before loading a large model
             if device == "cuda":
                 torch.cuda.empty_cache()
-                
+
             FASTER_WHISPER_MODEL = WhisperModel(model_size, device=device, compute_type="float16")
-            print("✅ Faster-Whisper Loaded!")
+            print("Faster-Whisper Loaded.")
         except Exception as e:
-            print(f"⚠️ Faster-Whisper load failed: {e}")
+            print(f"Faster-Whisper load failed: {e}")
             return None
     return FASTER_WHISPER_MODEL
 
@@ -123,17 +121,17 @@ def get_indic_conformer():
     global INDIC_CONFORMER_MODEL
     if INDIC_CONFORMER_MODEL is None:
         try:
-            print("🕉️ Loading IndicConformer...")
+            print("Loading IndicConformer...")
             INDIC_CONFORMER_MODEL = IndicConformerASR()
         except Exception as e:
-            print(f"⚠️ IndicConformer load failed: {e}")
+            print(f"IndicConformer load failed: {e}")
             return None
     return INDIC_CONFORMER_MODEL
 
 def get_lid():
     global LID_MODEL
     if LID_MODEL is None:
-        print("🧠 Loading LID Model (Whisper-Small) on CPU to save VRAM...")
+        print("Loading LID Model (Whisper-Small) on CPU to save VRAM...")
         LID_MODEL = LanguageIdentifier(device="cpu")
     return LID_MODEL
 
@@ -142,10 +140,10 @@ try:
     from flask_sock import Sock
     sock = Sock(app)
     HAS_WEBSOCKET = True
-    print("✅ WebSocket Support Enabled (flask-sock)")
+    print("WebSocket Support Enabled (flask-sock)")
 except ImportError:
     HAS_WEBSOCKET = False
-    print("⚠️ flask-sock not installed. WebSocket endpoint will be disabled. Run `pip install flask-sock`")
+    print("flask-sock not installed. WebSocket endpoint disabled. Run `pip install flask-sock`")
 
 @app.route('/')
 def home():
@@ -163,32 +161,174 @@ def health():
         description: System is ready
     """
     return jsonify({
-        "status": "ok", 
-        "message": "Vasha-AI Backend Ready", 
+        "status": "ok",
+        "message": "Vasha-AI Backend Ready",
         "websocket_enabled": HAS_WEBSOCKET
     })
+
+def run_asr_chunk(input_path, detected_lang, model_choice, word_timestamps):
+    text = ""
+    asr_used = "unknown"
+    words = None
+
+    with GPU_LOCK:
+        if model_choice == "indic_conformer":
+            conformer = get_indic_conformer()
+            if conformer:
+                text = conformer.transcribe(input_path, detected_lang, decoder_type="ctc")
+                asr_used = "indic_conformer"
+
+        if not text and model_choice == "faster_whisper":
+            fw = get_faster_whisper()
+            if fw:
+                segments, _ = fw.transcribe(
+                    input_path,
+                    language=detected_lang,
+                    beam_size=5,
+                    word_timestamps=word_timestamps
+                )
+                text = " ".join([s.text for s in segments]).strip()
+                asr_used = "faster_whisper"
+                if word_timestamps:
+                    words = []
+                    for s in segments:
+                        if not s.words:
+                            continue
+                        for w in s.words:
+                            words.append({
+                                "word": w.word.strip(),
+                                "start_time": w.start,
+                                "end_time": w.end
+                            })
+
+        if not text:
+            model = get_whisper()
+            result = model.transcribe(input_path, language=detected_lang)
+            text = result['text'].strip()
+            asr_used = "whisper_standard"
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return text, asr_used, words
 
 if HAS_WEBSOCKET:
     @sock.route('/stream_audio')
     def stream_audio(ws):
-        print("🔌 WebSocket Connected")
+        print("WebSocket Connected")
+
+        state = {
+            "target_lang": "en",
+            "asr_model": "faster_whisper",
+            "partial_enabled": True,
+            "word_timestamps": False
+        }
+
         try:
             while True:
                 data = ws.receive()
-                if not data:
+                if data is None:
                     break
-                
-                # Expecting JSON with metadata or Raw bytes? 
-                # For simplicity, let's assume we receive a JSON with command or raw bytes.
-                # If bytes, it's audio. If text, it might be control.
-                # Implementation of full streaming pipeline logic here.
-                # For this MVP step, we just acknowledge receipt or process minimal chunks.
-                pass
+
+                if isinstance(data, bytes):
+                    continue
+
+                try:
+                    msg = json.loads(data)
+                except Exception:
+                    continue
+
+                if msg.get("type") == "control":
+                    state["target_lang"] = msg.get("target_lang", state["target_lang"])
+                    state["asr_model"] = msg.get("asr_model", state["asr_model"])
+                    state["partial_enabled"] = msg.get("partial_enabled", state["partial_enabled"])
+                    state["word_timestamps"] = msg.get("word_timestamps", state["word_timestamps"])
+                    continue
+
+                if msg.get("type") != "audio_chunk":
+                    continue
+
+                audio_b64 = msg.get("audio_b64")
+                if not audio_b64:
+                    continue
+
+                is_final = bool(msg.get("is_final", False))
+                partial_enabled = bool(msg.get("partial_enabled", state["partial_enabled"]))
+                word_ts = bool(msg.get("word_timestamps", state["word_timestamps"]))
+                segment_id = msg.get("segment_id", 0)
+                segment_start_time = msg.get("segment_start_time", None)
+                segment_end_time = msg.get("segment_end_time", None)
+
+                if (not is_final) and (not partial_enabled):
+                    continue
+
+                try:
+                    audio_bytes = base64.b64decode(audio_b64)
+                except Exception:
+                    continue
+
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_in:
+                    temp_in.write(audio_bytes)
+                    input_path = temp_in.name
+
+                if os.path.getsize(input_path) < 1024:
+                    continue
+
+                # LID
+                lid = get_lid()
+                detected_lang, confidence_dict = lid.detect(input_path, duration_limit=2.0)
+                confidence = confidence_dict.get(detected_lang, 0.0)
+                if not detected_lang:
+                    detected_lang = "en"
+
+                # Determine ASR model (backend override)
+                preferred_model = msg.get("asr_model", state["asr_model"])
+                effective_model = preferred_model
+                indic_set = {'hi', 'bn', 'as', 'or', 'ta', 'te'}
+                if detected_lang in indic_set:
+                    effective_model = "indic_conformer"
+                else:
+                    effective_model = "faster_whisper"
+
+                if effective_model != preferred_model:
+                    ws.send(json.dumps({
+                        "type": "asr_override",
+                        "model": effective_model,
+                        "reason": "language_switch",
+                        "detected_language": detected_lang
+                    }))
+
+                # ASR
+                text, asr_used, words = run_asr_chunk(
+                    input_path,
+                    detected_lang,
+                    effective_model,
+                    word_ts
+                )
+
+                if not text:
+                    continue
+
+                response = {
+                    "type": "asr_final" if is_final else "asr_partial",
+                    "segment_id": segment_id,
+                    "text": text,
+                    "words": words,
+                    "asr_model": asr_used,
+                    "detected_language": detected_lang,
+                    "confidence": confidence,
+                    "segment_start_time": segment_start_time,
+                    "segment_end_time": segment_end_time
+                }
+                ws.send(json.dumps(response))
         except Exception as e:
             print(f"WebSocket Error: {e}")
+            try:
+                ws.send(json.dumps({"type": "error", "message": str(e)}))
+            except Exception:
+                pass
         finally:
-            print("🔌 WebSocket Disconnected")
-
+            print("WebSocket Disconnected")
 
 @app.route('/transcribe_translate', methods=['POST'])
 def process_audio():
@@ -218,65 +358,53 @@ def process_audio():
     try:
         if 'audio' not in request.files:
             return jsonify({"error": "No audio file provided"}), 400
-        
+
         audio_file = request.files['audio']
         target_lang_iso = request.form.get('target_lang', 'en')
-        mode = request.form.get('mode', 'fast') # fast or quality
-        
+        mode = request.form.get('mode', 'fast')
+
         target_flores = ISO_TO_FLORES.get(target_lang_iso, "eng_Latn")
-        # Quick map overrides
         if target_lang_iso == "hi": target_flores = "hin_Deva"
         if target_lang_iso == "ja": target_flores = "jpn_Jpan"
         if target_lang_iso == "es": target_flores = "spa_Latn"
         if target_lang_iso == "fr": target_flores = "fra_Latn"
-        
-        
+
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_in:
             audio_file.save(temp_in.name)
             input_path = temp_in.name
 
-        # Validation: Check if audio is valid (size > 1KB)
         if os.path.getsize(input_path) < 1024:
-            print("⚠️ Audio chunk too small (<1KB), skipping.")
             return jsonify({"status": "empty", "message": "Audio too short/silent"}), 200
 
-        # ---------------------------------------------------------
-        # 1. 🔍 Language Identification (Lightweight, First 2s)
-        # ---------------------------------------------------------
+        # 1. Language Identification
         lid = get_lid()
-        # Run on first 2 seconds only
         detected_lang, confidence_dict = lid.detect(input_path, duration_limit=2.0)
         confidence = confidence_dict.get(detected_lang, 0.0)
-        
+
         if not detected_lang:
             detected_lang = "en"
-            print("⚠️ LID failed, defaulting to 'en'")
+            print("LID failed, defaulting to 'en'")
         else:
-            print(f"✅ Realtime Gateway: Detected {detected_lang} (Confidence: {confidence:.2f})")
+            print(f"Detected {detected_lang} (Confidence: {confidence:.2f})")
 
-        # ---------------------------------------------------------
-        # 2. 🧠 ASR Selection (Decision Table) with GPU LOCK
-        # ---------------------------------------------------------
+        # 2. ASR Selection with GPU LOCK
         text = ""
         asr_used = "unknown"
-        
-        # Define Indic set for IndicConformer
+
         INDIC_SET = {'hi', 'bn', 'as', 'or', 'ta', 'te'}
-        
+
         with GPU_LOCK:
             if detected_lang in INDIC_SET:
                 conformer = get_indic_conformer()
                 if conformer:
-                    print(f"📝 ASR Strategy: IndicConformer for {detected_lang}")
                     text = conformer.transcribe(input_path, detected_lang, decoder_type="ctc")
                     asr_used = "indic_conformer"
                 else:
-                    print("⚠️ IndicConformer unavailable, falling back to Whisper")
-                    
+                    print("IndicConformer unavailable, falling back to Whisper")
+
             elif detected_lang == 'en':
                 fw = get_faster_whisper()
                 if fw:
-                    print(f"📝 ASR Strategy: Faster-Whisper (Large) for {detected_lang}")
                     segments, _ = fw.transcribe(input_path, language=detected_lang, beam_size=5)
                     text = " ".join([s.text for s in segments]).strip()
                     asr_used = "faster_whisper_large"
@@ -286,7 +414,6 @@ def process_audio():
                     text = result['text'].strip()
                     asr_used = "whisper_standard"
             else:
-                print(f"📝 ASR Strategy: Fallback/General (Whisper Large) for {detected_lang}")
                 fw = get_faster_whisper()
                 if fw:
                     segments, _ = fw.transcribe(input_path, language=detected_lang, beam_size=5)
@@ -297,17 +424,13 @@ def process_audio():
                     result = model.transcribe(input_path, language=detected_lang)
                     text = result['text'].strip()
                     asr_used = "whisper_standard"
-            
-            # Flush VRAM after heavy ASR
+
             gc.collect()
             torch.cuda.empty_cache()
-        
-        # Check if text was generated
+
         if not text:
-             # Final fallback attempt
-             if asr_used == "unknown" or asr_used == "indic_conformer":
-                 print("⚠️ Primary ASR produced no text, trying Whisper backup...")
-                 with GPU_LOCK:
+            if asr_used == "unknown" or asr_used == "indic_conformer":
+                with GPU_LOCK:
                     model = get_whisper()
                     result = model.transcribe(input_path, language=detected_lang)
                     text = result['text'].strip()
@@ -318,35 +441,31 @@ def process_audio():
         if not text:
             return jsonify({"status": "empty", "message": "No speech detected"})
 
-        print(f"🎤 Transcript ({detected_lang}) [{asr_used}]: {text}")
+        print(f"Transcript ({detected_lang}) [{asr_used}]: {text}")
 
-        # ---------------------------------------------------------
-        # 3. 🌍 Translation (MT) - Fast vs Quality
-        # ---------------------------------------------------------
-        print(f"🔄 Translation Mode: {mode.upper()}")
-        
+        # 3. Translation (MT) - Fast vs Quality
+        print(f"Translation Mode: {mode.upper()}")
+
         translated_text = ""
         with GPU_LOCK:
             translated_text = perform_translation(
-                text, 
-                detected_lang, 
-                target_flores, 
+                text,
+                detected_lang,
+                target_flores,
                 backend_choice="nllb"
             )
             gc.collect()
             torch.cuda.empty_cache()
-            
-        print(f"💬 Translated ({target_flores}): {translated_text}")
 
-        # ---------------------------------------------------------
-        # 4. 🔊 TTS (Voiceover) - Unchanged but Locked
-        # ---------------------------------------------------------
+        print(f"Translated ({target_flores}): {translated_text}")
+
+        # 4. TTS
         output_tts_filename = f"out_{os.path.basename(input_path)}"
         out_dir = os.path.join(os.getcwd(), "sessions", "server_temp")
         os.makedirs(out_dir, exist_ok=True)
-        
+
         tts_path = ""
-        
+
         with GPU_LOCK:
             try:
                 tts_path = run_universal_tts(
@@ -360,7 +479,7 @@ def process_audio():
                 gc.collect()
                 torch.cuda.empty_cache()
             except Exception as e:
-                print(f"❌ TTS Failed: {e}")
+                print(f"TTS Failed: {e}")
 
         audio_b64 = ""
         if tts_path and os.path.exists(tts_path):
@@ -382,30 +501,26 @@ def process_audio():
         })
 
     except Exception as e:
-        print(f"❌ Server Error: {e}")
+        print(f"Server Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     print("\n" + "="*50)
-    print("🚀 INITIALIZING VASHA-AI SERVER")
+    print("INITIALIZING VASHA-AI SERVER")
     print("="*50)
-    print("⏳ Pre-loading critical models to prevent runtime lags...")
-    
+    print("Pre-loading critical models to prevent runtime lags...")
+
     # 1. Load LID (Fast)
     get_lid()
-    
+
     # 2. Load Faster-Whisper (Heavy)
-    # We load it now so the First Request doesn't time out the browser
     fw = get_faster_whisper()
     if fw:
-        print("✅ Whisper Large-v3 Ready")
+        print("Whisper Large-v3 Ready")
     else:
-        print("⚠️ Whisper Large-v3 Failed to Load (Will retry on request, but expect delays)")
+        print("Whisper Large-v3 Failed to Load (Will retry on request)")
 
-    print("\n✅ SERVER READY - LISTENING FOR REQUESTS")
+    print("\nSERVER READY - LISTENING FOR REQUESTS")
     print("="*50 + "\n")
-    
-    # use_reloader=False is CRITICAL for:
-    # 1. Allowing Ctrl+C to work properly on Windows
-    # 2. Preventing double-loading of heavy models (VRAM issues)
+
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=True)

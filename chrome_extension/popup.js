@@ -8,6 +8,10 @@ const langSelect = document.getElementById('languageSelect');
 const lidLang = document.getElementById('lidLang');
 const lidConf = document.getElementById('lidConf');
 const lidTimeline = document.getElementById('lidTimeline');
+const asrModelSelect = document.getElementById('asrModelSelect');
+const asrModelStatus = document.getElementById('asrModelStatus');
+const partialToggle = document.getElementById('partialToggle');
+const wordTsToggle = document.getElementById('wordTsToggle');
 
 // Initial check of state
 chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
@@ -18,23 +22,38 @@ chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
         chrome.runtime.sendMessage({ type: "GET_HISTORY" }, (historyRes) => {
             if (historyRes && historyRes.history) {
                 historyRes.history.forEach(msg => {
-                    liveText.innerText = msg.text; // Show latest
-                    if (msg.metadata) {
-                        updateLID(msg.metadata); // Rebuild timeline
+                    if (msg.type === "SUBTITLE_UPDATE" || msg.text) {
+                        liveText.innerText = msg.text || liveText.innerText;
                     }
+                    if (msg.metadata) updateLID(msg.metadata);
                 });
             }
         });
+    }
+
+    if (response) {
+        if (response.asrModel) {
+            asrModelSelect.value = response.asrModel;
+            asrModelStatus.innerText = response.asrModel;
+        }
+        if (typeof response.partialEnabled === 'boolean') partialToggle.checked = response.partialEnabled;
+        if (typeof response.wordTimestamps === 'boolean') wordTsToggle.checked = response.wordTimestamps;
     }
 });
 
 startBtn.addEventListener('click', () => {
     const lang = langSelect.value;
     const mode = document.getElementById('inputMode').value;
+    const asrModel = asrModelSelect.value;
+    const partialEnabled = partialToggle.checked;
+    const wordTimestamps = wordTsToggle.checked;
     chrome.runtime.sendMessage({
         type: "START_RECORDING",
         targetLang: lang,
-        inputMode: mode
+        inputMode: mode,
+        asrModel,
+        partialEnabled,
+        wordTimestamps
     }, (response) => {
         if (response.success) {
             showRecordingState();
@@ -48,12 +67,41 @@ stopBtn.addEventListener('click', () => {
     });
 });
 
+asrModelSelect.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+        type: "UPDATE_ASR_PREFS",
+        asrModel: asrModelSelect.value,
+        partialEnabled: partialToggle.checked,
+        wordTimestamps: wordTsToggle.checked
+    });
+    asrModelStatus.innerText = asrModelSelect.value;
+});
+
+partialToggle.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+        type: "UPDATE_ASR_PREFS",
+        asrModel: asrModelSelect.value,
+        partialEnabled: partialToggle.checked,
+        wordTimestamps: wordTsToggle.checked
+    });
+});
+
+wordTsToggle.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+        type: "UPDATE_ASR_PREFS",
+        asrModel: asrModelSelect.value,
+        partialEnabled: partialToggle.checked,
+        wordTimestamps: wordTsToggle.checked
+    });
+});
+
 function showRecordingState() {
     startBtn.style.display = 'none';
     stopBtn.style.display = 'block';
-    statusText.innerText = "Listening & Translating...";
+    statusText.innerText = "Listening";
     statusDot.classList.add('active');
-    liveText.innerText = "Processing chunks...";
+    liveText.innerText = "Waiting for speech...";
+    asrModelStatus.innerText = asrModelSelect.value;
 }
 
 function showReadyState() {
@@ -67,11 +115,22 @@ function showReadyState() {
 
 // Listen for updates from background
 chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === "TRANSCRIPTION_UPDATE") {
-        liveText.innerText = message.text; // Show translated text
-        if (message.metadata) {
-            updateLID(message.metadata);
+    if (message.type === "SUBTITLE_UPDATE") {
+        if (message.text) liveText.innerText = message.text;
+        if (message.state) updateState(message.state);
+        if (message.asr_model) {
+            asrModelStatus.innerText = message.asr_model;
         }
+    } else if (message.type === "ASR_MODEL_UPDATE") {
+        if (message.model) {
+            asrModelSelect.value = message.model;
+            asrModelStatus.innerText = message.model;
+        }
+    } else if (message.type === "ASR_STATE") {
+        updateState(message.state);
+    } else if (message.type === "TRANSCRIPTION_UPDATE") {
+        liveText.innerText = message.text;
+        if (message.metadata) updateLID(message.metadata);
     } else if (message.type === "ERROR") {
         statusText.innerText = "Error";
         statusDot.style.background = "red";
@@ -82,6 +141,17 @@ chrome.runtime.onMessage.addListener((message) => {
         stopBtn.style.display = 'none';
     }
 });
+
+function updateState(state) {
+    if (!state) return;
+    if (state === "transcribing") {
+        statusText.innerText = "Transcribing";
+    } else if (state === "finalized") {
+        statusText.innerText = "Finalized";
+    } else {
+        statusText.innerText = "Listening";
+    }
+}
 
 function updateLID(metadata) {
     if (!metadata) return;

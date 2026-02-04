@@ -1,5 +1,4 @@
-// offscreen.js - Advanced Audio Capture (Tab, Mic, Mixed), Resampling, VAD
-// Updated to use AudioWorklet to avoid Deprecation Warnings
+// offscreen.js - Advanced Audio Capture (Tab, Mic, Mixed), Resampling, VAD + WS ASR
 
 let audioContext;
 let workletNode;
@@ -9,24 +8,60 @@ let globalStream = null; // Reference to active media stream
 // Config
 const TARGET_SAMPLE_RATE = 16000;
 const VAD_THRESHOLD = 0.01; // RMS Threshold
+const PARTIAL_FLUSH_MS = 700;
+const PARTIAL_WINDOW_SEC = 2.0;
+const FINAL_MIN_SEC = 1.0;
+const FINAL_MAX_SEC = 6.0;
+const SILENCE_FINAL_MS = 500;
+const MAX_BUFFER_SEC = 8.0;
+
 let buffer = []; // Float32 Accumulator
 let silenceStart = null;
 let speaking = false;
+let lastPartialSentAt = 0;
+let recordingStartTs = 0;
+let currentSegmentStartTs = 0;
+let segmentId = 0;
 
 // Backend Config
-const BACKEND_URL = "http://127.0.0.1:5000/transcribe_translate";
 const WS_URL = "ws://127.0.0.1:5000/stream_audio";
+const BACKEND_URL = "http://127.0.0.1:5000/transcribe_translate";
+const ENABLE_LEGACY_TRANSLATION = true;
+
+// Session prefs
+let targetLang = "en";
+let inputMode = "tab";
+let asrModel = "faster_whisper";
+let partialEnabled = true;
+let wordTimestamps = false;
+
+// WebSocket
+let ws = null;
+let wsReady = false;
+let wsQueue = [];
+let reconnectTimer = null;
 
 chrome.runtime.onMessage.addListener(async (message) => {
     if (message.type === "INIT_RECORDING") {
-        startRecording(message.streamId, message.targetLang, message.inputMode);
+        startRecording(message.streamId, message.targetLang, message.inputMode, message.asrModel, message.partialEnabled, message.wordTimestamps);
     } else if (message.type === "STOP_RECORDING_OFFSCREEN") {
         stopRecording();
+    } else if (message.type === "UPDATE_PREFS_OFFSCREEN") {
+        if (message.asrModel) asrModel = message.asrModel;
+        if (typeof message.partialEnabled === "boolean") partialEnabled = message.partialEnabled;
+        if (typeof message.wordTimestamps === "boolean") wordTimestamps = message.wordTimestamps;
+        if (wsReady) sendControl("update");
     }
 });
 
-async function startRecording(streamId, targetLang, inputMode) {
+async function startRecording(streamId, tLang, mode, model, partial, wordTs) {
     if (isRecording) return;
+
+    targetLang = tLang || targetLang;
+    inputMode = mode || inputMode;
+    asrModel = model || asrModel;
+    partialEnabled = typeof partial === "boolean" ? partial : partialEnabled;
+    wordTimestamps = typeof wordTs === "boolean" ? wordTs : wordTimestamps;
 
     try {
         audioContext = new AudioContext({ sampleRate: 16000 });
@@ -45,6 +80,14 @@ async function startRecording(streamId, targetLang, inputMode) {
 
     isRecording = true;
     buffer = [];
+    silenceStart = null;
+    speaking = false;
+    lastPartialSentAt = 0;
+    recordingStartTs = performance.now();
+    currentSegmentStartTs = recordingStartTs;
+    segmentId = 0;
+
+    connectWebSocket();
 
     try {
         const destination = audioContext.createMediaStreamDestination();
@@ -92,7 +135,7 @@ async function startRecording(streamId, targetLang, inputMode) {
         // Handle messages from Worklet
         workletNode.port.onmessage = (event) => {
             if (!isRecording) return;
-            handleAudioProcess(event.data, audioContext.sampleRate, targetLang);
+            handleAudioProcess(event.data, audioContext.sampleRate);
         };
 
         mixedSource.connect(workletNode);
@@ -105,7 +148,7 @@ async function startRecording(streamId, targetLang, inputMode) {
     }
 }
 
-function handleAudioProcess(inputData, inputRate, targetLang) {
+function handleAudioProcess(inputData, inputRate) {
     try {
         // A. Resample to 16kHz if needed
         let processedData = inputData;
@@ -132,12 +175,39 @@ function handleAudioProcess(inputData, inputRate, targetLang) {
             }
         }
 
-        // Check Flush
+        // Cap buffer to last MAX_BUFFER_SEC
+        const maxLen = Math.round(MAX_BUFFER_SEC * TARGET_SAMPLE_RATE);
+        if (buffer.length > maxLen) {
+            buffer = buffer.slice(buffer.length - maxLen);
+        }
+
+        // Check flush
         const durationSec = buffer.length / TARGET_SAMPLE_RATE;
         const silenceDuration = silenceStart ? (Date.now() - silenceStart) : 0;
 
-        if (durationSec >= 3.0 || (durationSec > 1.0 && silenceDuration > 500)) {
-            flushBuffer(targetLang);
+        // Partial updates
+        const now = Date.now();
+        if (partialEnabled && speaking && (now - lastPartialSentAt) > PARTIAL_FLUSH_MS && durationSec >= 0.4) {
+            lastPartialSentAt = now;
+            const windowLen = Math.min(buffer.length, Math.round(PARTIAL_WINDOW_SEC * TARGET_SAMPLE_RATE));
+            const startIdx = Math.max(0, buffer.length - windowLen);
+            const partialSlice = buffer.slice(startIdx);
+            sendChunk(partialSlice, false);
+        }
+
+        // Final flush on silence or max duration
+        if (durationSec >= FINAL_MAX_SEC || (durationSec >= FINAL_MIN_SEC && silenceDuration > SILENCE_FINAL_MS)) {
+            sendChunk(buffer, true);
+            buffer = [];
+            speaking = false;
+            silenceStart = null;
+            segmentId += 1;
+            currentSegmentStartTs = performance.now();
+            chrome.runtime.sendMessage({ type: "ASR_STATE", state: "finalized" });
+        } else if (!speaking) {
+            chrome.runtime.sendMessage({ type: "ASR_STATE", state: "listening" });
+        } else {
+            chrome.runtime.sendMessage({ type: "ASR_STATE", state: "transcribing" });
         }
     } catch (err) {
         console.error("Audio Process Error:", err);
@@ -155,7 +225,149 @@ function stopRecording() {
 
     if (workletNode) workletNode.disconnect();
     if (audioContext) audioContext.close();
+    closeWebSocket();
     console.log("Recording Stopped");
+}
+
+// --- WebSocket ---
+
+function connectWebSocket() {
+    if (ws && (wsReady || ws.readyState === WebSocket.CONNECTING)) return;
+
+    ws = new WebSocket(WS_URL);
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+        wsReady = true;
+        sendControl("init");
+        flushQueue();
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === "asr_override") {
+                chrome.runtime.sendMessage({
+                    type: "ASR_OVERRIDE",
+                    model: data.model,
+                    reason: data.reason,
+                    detected_language: data.detected_language
+                });
+            } else if (data.type === "asr_partial") {
+                chrome.runtime.sendMessage({
+                    type: "ASR_PARTIAL",
+                    text: data.text,
+                    words: data.words || null,
+                    segment_id: data.segment_id,
+                    asr_model: data.asr_model,
+                    detected_language: data.detected_language,
+                    segment_start_time: data.segment_start_time,
+                    segment_end_time: data.segment_end_time,
+                    state: "transcribing"
+                });
+            } else if (data.type === "asr_final") {
+                chrome.runtime.sendMessage({
+                    type: "ASR_FINAL",
+                    text: data.text,
+                    words: data.words || null,
+                    segment_id: data.segment_id,
+                    asr_model: data.asr_model,
+                    detected_language: data.detected_language,
+                    segment_start_time: data.segment_start_time,
+                    segment_end_time: data.segment_end_time,
+                    state: "finalized"
+                });
+            } else if (data.type === "error") {
+                chrome.runtime.sendMessage({ type: "ERROR", message: data.message || "ASR error" });
+            }
+        } catch (e) {
+            // Ignore non-JSON
+        }
+    };
+
+    ws.onclose = () => {
+        wsReady = false;
+        scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+        wsReady = false;
+        scheduleReconnect();
+    };
+}
+
+function closeWebSocket() {
+    wsReady = false;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+}
+
+function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (isRecording) connectWebSocket();
+    }, 1000);
+}
+
+function sendControl(action) {
+    const payload = {
+        type: "control",
+        action,
+        target_lang: targetLang,
+        input_mode: inputMode,
+        asr_model: asrModel,
+        partial_enabled: partialEnabled,
+        word_timestamps: wordTimestamps
+    };
+    sendWS(payload);
+}
+
+function sendChunk(floatData, isFinal) {
+    if (!floatData || floatData.length === 0) return;
+    const wavBuffer = createWavBuffer(floatData);
+    const audioB64 = arrayBufferToBase64(wavBuffer);
+    const nowTs = performance.now();
+    const payload = {
+        type: "audio_chunk",
+        segment_id: segmentId,
+        is_final: isFinal,
+        target_lang: targetLang,
+        asr_model: asrModel,
+        partial_enabled: partialEnabled,
+        word_timestamps: wordTimestamps,
+        segment_start_time: (currentSegmentStartTs - recordingStartTs) / 1000.0,
+        segment_end_time: (nowTs - recordingStartTs) / 1000.0,
+        audio_b64: audioB64
+    };
+    sendWS(payload);
+
+    if (isFinal && ENABLE_LEGACY_TRANSLATION) {
+        const blob = new Blob([wavBuffer], { type: "audio/wav" });
+        sendToBackendLegacy(blob, targetLang);
+    }
+}
+
+function sendWS(payload) {
+    if (wsReady && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(payload));
+    } else {
+        wsQueue.push(payload);
+        if (wsQueue.length > 10) wsQueue.shift();
+    }
+}
+
+function flushQueue() {
+    if (!wsReady || !ws || ws.readyState !== WebSocket.OPEN) return;
+    while (wsQueue.length > 0) {
+        ws.send(JSON.stringify(wsQueue.shift()));
+    }
 }
 
 // --- Utils ---
@@ -190,15 +402,11 @@ function floatTo16BitPCM(output, offset, input) {
     }
 }
 
-async function flushBuffer(lang) {
-    if (buffer.length === 0) return;
-
-    // Convert to 16-bit PCM Blob
-    const dataLen = buffer.length * 2;
+function createWavBuffer(floatData) {
+    const dataLen = floatData.length * 2;
     const bufferArray = new ArrayBuffer(44 + dataLen);
     const view = new DataView(bufferArray);
 
-    // WAV Header
     writeString(view, 0, 'RIFF');
     view.setUint32(4, 36 + dataLen, true);
     writeString(view, 8, 'WAVE');
@@ -213,15 +421,8 @@ async function flushBuffer(lang) {
     writeString(view, 36, 'data');
     view.setUint32(40, dataLen, true);
 
-    floatTo16BitPCM(view, 44, buffer);
-
-    const blob = new Blob([view], { type: 'audio/wav' });
-    buffer = [];
-    speaking = false;
-    silenceStart = null;
-
-    // Send
-    await sendToBackend(blob, lang);
+    floatTo16BitPCM(view, 44, floatData);
+    return bufferArray;
 }
 
 function writeString(view, offset, string) {
@@ -230,19 +431,23 @@ function writeString(view, offset, string) {
     }
 }
 
-async function sendToBackend(audioBlob, lang) {
-    // For MVP validation, we still use the standard FETCH logic with the new URL (127.0.0.1)
-    // The user requested WebSocket "Prefer" but also "Replace insecure http". 
-    // We start with reliable http://127.0.0.1. A full msg-based WS stream requires larger backend rewrite.
+function arrayBufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
 
-    // Check if backend is reachable at new address
+async function sendToBackendLegacy(audioBlob, lang) {
     try {
         const formData = new FormData();
         formData.append("audio", audioBlob, "chunk.wav");
         formData.append("target_lang", lang);
-        formData.append("mode", "fast"); // Request Fast Mode (Live)
+        formData.append("mode", "fast");
 
-        // Using 127.0.0.1 which avoids some localhost issues
         const response = await fetch(BACKEND_URL, {
             method: "POST",
             body: formData
@@ -258,13 +463,12 @@ async function sendToBackend(audioBlob, lang) {
             chrome.runtime.sendMessage({
                 type: "TRANSCRIPTION_UPDATE",
                 text: data.translated_text,
-                metadata: data.metadata // Pass LID confidence & language
+                metadata: data.metadata
             });
             playBase64Audio(data.audio_base64);
         }
     } catch (e) {
         console.error("Backend Error:", e);
-        // chrome.runtime.sendMessage({ type: "ERROR", message: "Backend unreachable. Is vasha_server.py running?" });
     }
 }
 
@@ -274,6 +478,6 @@ function playBase64Audio(base64String) {
         audio.volume = 1.0;
         audio.play().catch(e => console.error("Playback failed:", e));
     } catch (e) {
-        console.error(" Audio creation failed:", e);
+        console.error("Audio creation failed:", e);
     }
 }

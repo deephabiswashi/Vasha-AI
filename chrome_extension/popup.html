@@ -166,14 +166,39 @@
   </div>
 
   <div class="control-group">
-    <button id="startBtn">▶ Start Translating</button>
-    <button id="stopBtn">⏹ Stop</button>
+    <label>ASR Model</label>
+    <select id="asrModelSelect">
+      <option value="faster_whisper">faster-whisper</option>
+      <option value="indic_conformer">IndicConformer</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label>Transcription Options</label>
+    <div style="display: flex; gap: 10px;">
+      <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ccc;">
+        <input type="checkbox" id="partialToggle" checked>
+        Partial subtitles
+      </label>
+      <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ccc;">
+        <input type="checkbox" id="wordTsToggle">
+        Word timestamps
+      </label>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <button id="startBtn">Start Translating</button>
+    <button id="stopBtn">Stop</button>
   </div>
 
   <div class="status">
     <div style="margin-bottom: 5px;">
       <span id="statusDot" class="indicator"></span>
       <span id="statusText">Ready</span>
+    </div>
+    <div style="font-size: 11px; color: #999; margin-bottom: 6px;">
+      ASR: <span id="asrModelStatus">--</span>
     </div>
     <div id="liveText">Waiting for audio...</div>
   </div>
