@@ -34,27 +34,42 @@ let inputMode = "tab";
 let asrModel = "faster_whisper";
 let partialEnabled = true;
 let wordTimestamps = false;
+let voiceoverEnabled = true;
+let ttsVolume = 1.0;
 
 // WebSocket
 let ws = null;
 let wsReady = false;
 let wsQueue = [];
 let reconnectTimer = null;
+let legacyFailCount = 0;
 
 chrome.runtime.onMessage.addListener(async (message) => {
     if (message.type === "INIT_RECORDING") {
-        startRecording(message.streamId, message.targetLang, message.inputMode, message.asrModel, message.partialEnabled, message.wordTimestamps);
+        startRecording(
+            message.streamId,
+            message.targetLang,
+            message.inputMode,
+            message.asrModel,
+            message.partialEnabled,
+            message.wordTimestamps,
+            message.voiceoverEnabled,
+            message.ttsVolume
+        );
     } else if (message.type === "STOP_RECORDING_OFFSCREEN") {
         stopRecording();
     } else if (message.type === "UPDATE_PREFS_OFFSCREEN") {
         if (message.asrModel) asrModel = message.asrModel;
         if (typeof message.partialEnabled === "boolean") partialEnabled = message.partialEnabled;
         if (typeof message.wordTimestamps === "boolean") wordTimestamps = message.wordTimestamps;
+        if (typeof message.voiceoverEnabled === "boolean") voiceoverEnabled = message.voiceoverEnabled;
+        if (typeof message.ttsVolume === "number") ttsVolume = message.ttsVolume;
+        if (message.targetLang) targetLang = message.targetLang;
         if (wsReady) sendControl("update");
     }
 });
 
-async function startRecording(streamId, tLang, mode, model, partial, wordTs) {
+async function startRecording(streamId, tLang, mode, model, partial, wordTs, vEnabled, volume) {
     if (isRecording) return;
 
     targetLang = tLang || targetLang;
@@ -62,6 +77,8 @@ async function startRecording(streamId, tLang, mode, model, partial, wordTs) {
     asrModel = model || asrModel;
     partialEnabled = typeof partial === "boolean" ? partial : partialEnabled;
     wordTimestamps = typeof wordTs === "boolean" ? wordTs : wordTimestamps;
+    if (typeof vEnabled === "boolean") voiceoverEnabled = vEnabled;
+    if (typeof volume === "number") ttsVolume = volume;
 
     try {
         audioContext = new AudioContext({ sampleRate: 16000 });
@@ -465,17 +482,29 @@ async function sendToBackendLegacy(audioBlob, lang) {
                 text: data.translated_text,
                 metadata: data.metadata
             });
-            playBase64Audio(data.audio_base64);
+            if (voiceoverEnabled) {
+                playBase64Audio(data.audio_base64);
+            }
         }
+        legacyFailCount = 0;
     } catch (e) {
         console.error("Backend Error:", e);
+        legacyFailCount += 1;
+        if (legacyFailCount >= 3) {
+            legacyFailCount = 0;
+            chrome.runtime.sendMessage({
+                type: "ERROR",
+                message: "Backend unreachable. Stopping capture."
+            });
+            stopRecording();
+        }
     }
 }
 
 function playBase64Audio(base64String) {
     try {
         const audio = new Audio("data:audio/wav;base64," + base64String);
-        audio.volume = 1.0;
+        audio.volume = Math.max(0, Math.min(1, ttsVolume));
         audio.play().catch(e => console.error("Playback failed:", e));
     } catch (e) {
         console.error("Audio creation failed:", e);

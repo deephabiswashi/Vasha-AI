@@ -12,6 +12,9 @@ const asrModelSelect = document.getElementById('asrModelSelect');
 const asrModelStatus = document.getElementById('asrModelStatus');
 const partialToggle = document.getElementById('partialToggle');
 const wordTsToggle = document.getElementById('wordTsToggle');
+const voiceoverToggle = document.getElementById('voiceoverToggle');
+const ttsVolume = document.getElementById('ttsVolume');
+const ttsVolumeLabel = document.getElementById('ttsVolumeLabel');
 
 // Initial check of state
 chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
@@ -38,6 +41,15 @@ chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
         }
         if (typeof response.partialEnabled === 'boolean') partialToggle.checked = response.partialEnabled;
         if (typeof response.wordTimestamps === 'boolean') wordTsToggle.checked = response.wordTimestamps;
+        if (typeof response.voiceoverEnabled === 'boolean') voiceoverToggle.checked = response.voiceoverEnabled;
+        if (typeof response.ttsVolume === 'number') {
+            const vol = Math.round(response.ttsVolume * 100);
+            ttsVolume.value = String(vol);
+            ttsVolumeLabel.innerText = `${vol}%`;
+        }
+        if (response.targetLang) {
+            langSelect.value = response.targetLang;
+        }
     }
 });
 
@@ -47,13 +59,17 @@ startBtn.addEventListener('click', () => {
     const asrModel = asrModelSelect.value;
     const partialEnabled = partialToggle.checked;
     const wordTimestamps = wordTsToggle.checked;
+    const voiceoverEnabled = voiceoverToggle.checked;
+    const volume = Math.max(0, Math.min(1, parseInt(ttsVolume.value, 10) / 100));
     chrome.runtime.sendMessage({
         type: "START_RECORDING",
         targetLang: lang,
         inputMode: mode,
         asrModel,
         partialEnabled,
-        wordTimestamps
+        wordTimestamps,
+        voiceoverEnabled,
+        ttsVolume: volume
     }, (response) => {
         if (response.success) {
             showRecordingState();
@@ -77,6 +93,13 @@ asrModelSelect.addEventListener('change', () => {
     asrModelStatus.innerText = asrModelSelect.value;
 });
 
+langSelect.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+        type: "UPDATE_TARGET_LANG",
+        targetLang: langSelect.value
+    });
+});
+
 partialToggle.addEventListener('change', () => {
     chrome.runtime.sendMessage({
         type: "UPDATE_ASR_PREFS",
@@ -92,6 +115,22 @@ wordTsToggle.addEventListener('change', () => {
         asrModel: asrModelSelect.value,
         partialEnabled: partialToggle.checked,
         wordTimestamps: wordTsToggle.checked
+    });
+});
+
+voiceoverToggle.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+        type: "UPDATE_VOICEOVER_PREFS",
+        voiceoverEnabled: voiceoverToggle.checked
+    });
+});
+
+ttsVolume.addEventListener('input', () => {
+    const vol = Math.max(0, Math.min(1, parseInt(ttsVolume.value, 10) / 100));
+    ttsVolumeLabel.innerText = `${Math.round(vol * 100)}%`;
+    chrome.runtime.sendMessage({
+        type: "UPDATE_AUDIO_PREFS",
+        ttsVolume: vol
     });
 });
 
@@ -128,6 +167,10 @@ chrome.runtime.onMessage.addListener((message) => {
         }
     } else if (message.type === "ASR_STATE") {
         updateState(message.state);
+    } else if (message.type === "TARGET_LANG_UPDATE") {
+        if (message.targetLang) {
+            langSelect.value = message.targetLang;
+        }
     } else if (message.type === "TRANSCRIPTION_UPDATE") {
         liveText.innerText = message.text;
         if (message.metadata) updateLID(message.metadata);

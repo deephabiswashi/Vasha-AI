@@ -188,6 +188,20 @@
   </div>
 
   <div class="control-group">
+    <label>Voiceover</label>
+    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ccc;">
+      <input type="checkbox" id="voiceoverToggle" checked>
+      Enable voiceover (TTS)
+    </label>
+  </div>
+
+  <div class="control-group">
+    <label>TTS Volume</label>
+    <input type="range" id="ttsVolume" min="0" max="100" value="100" style="width: 100%;">
+    <div style="font-size: 11px; color: #999;">Volume: <span id="ttsVolumeLabel">100%</span></div>
+  </div>
+
+  <div class="control-group">
     <button id="startBtn">Start Translating</button>
     <button id="stopBtn">Stop</button>
   </div>

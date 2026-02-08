@@ -62,6 +62,7 @@ output_tts/
 *.ckpt
 *.pt
 *.bin
+*.model
 *.h5
 *.onnx
 *.tflite
@@ -82,7 +83,7 @@ __huggingface__/
 outputs/
 *.csv
 *.xlsx
-*.json
+response_*.json
 *.pkl
 *.zip
 *.tar.gz
@@ -102,6 +103,7 @@ settings.json
 # -----------------------
 test_*.py
 debug_*.py
+response_*.json
 
 # -----------------------
 # 🧩 Chrome Extension

@@ -71,7 +71,7 @@ Vasha-Models/
 ├── LID_Model/
 │   ├── lid.py                       # Language ID + dialect detection
 │   ├── spoof_detection.py           # Spoof detection
-│   ├── requirements.txt
+│   └── requirements.txt
 │
 ├── MT_Model/
 │   ├── mt_model.py                  # Unified translation model loader (NLLB, etc.)
@@ -87,11 +87,16 @@ Vasha-Models/
 │   ├── tts_common/                  # Shared TTS interface & utilities
 │   └── tts_cache/                   # Cached synthesized audio
 │
+├── chrome_extension/                # Chrome Extension source code
+│   └── manifest.json                # Extension manifest
+│
 ├── diagrams/                        # Architecture & speech-translation flowcharts
 ├── output_tts/                      # Example synthesized waveforms
 │
 ├── transcribe_pipeline.py           # Main end-to-end pipeline script
-├── gpusage.py                       # GPU usage tracker
+├── vasha_server.py                  # Main backend server for the extension
+├── verify_server.py                 # Server verification utility
+├── gpuusage.py                      # GPU usage tracker (monitor CUDA)
 ├── requirements.txt                 # Global dependencies
 └── readme.md                        # You're reading this file
 ```
@@ -143,9 +148,9 @@ This diagram focuses on the **end-to-end speech translation experience**, illust
 
 ---
 
----
 
-## 🧩 Vasha-AI Chrome Extension (New!)
+
+## 🧩 Vasha-AI Chrome Extension (Coming Soon)
 
 The project now includes a powerful **Manifest V3 Chrome Extension** that brings Vasha-AI directly to your browser throughout the web.
 
