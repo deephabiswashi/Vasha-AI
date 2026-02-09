@@ -1,7 +1,3 @@
-# -----------------------
-# 🧠 Vasha AI - Core Ignore Rules
-# -----------------------
-
 # Python
 __pycache__/
 *.py[cod]
@@ -11,30 +7,35 @@ __pycache__/
 *.egg
 *.egg-info/
 .eggs/
+
+# Build / packaging
+build/
+dist/
 *.manifest
 *.spec
 
 # Virtual environments
 .env
-.venv
-env/
+*.env
+.venv/
 venv/
-lid-env/
+env/
 ENV/
+lid-env/
 env.bak/
 venv.bak/
 
-# IDE / Editor files
+# IDE / editor
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
 
-# OS junk
+# OS files
 .DS_Store
 Thumbs.db
 
-# Logs / temporary files
+# Logs / temp
 *.log
 *.tmp
 *.bak
@@ -44,21 +45,30 @@ Thumbs.db
 *.out
 *.err
 
-# -----------------------
-# 🔊 Audio & Video Cache
-# -----------------------
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# HuggingFace / transformers caches
+transformers_cache/
+hf_cache/
+__huggingface__/
+
+# Runtime data / outputs
 Audio_TestWAV/
 recorded.wav
 deep_voicesample.wav
 youtube_cache/
 sessions/
 chunks_*/
-TTS_Model/tts_cache/
 output_tts/
+outputs/
+response_*.json
 
-# -----------------------
-# ⚙️ Model Caches / Checkpoints
-# -----------------------
+# Model caches / artifacts
+TTS_Model/tts_cache/
 *.ckpt
 *.pt
 *.bin
@@ -66,50 +76,23 @@ output_tts/
 *.h5
 *.onnx
 *.tflite
-*.pkl
 *.npy
 *.npz
+*.pkl
 
-# Hugging Face / Transformers
-~/.cache/huggingface/
-transformers_cache/
-hf_cache/
-.cache/
-__huggingface__/
-
-# -----------------------
-# 🧾 Data & Results
-# -----------------------
-outputs/
+# Data files
 *.csv
 *.xlsx
-response_*.json
-*.pkl
 *.zip
 *.tar.gz
-*.pdf
 
-# -----------------------
-# ⚡ Environment / Config
-# -----------------------
-*.env
-# config.json  <-- Commented out: Needed for model configs (e.g. NLLB). Use .env for secrets.
+# App config and local settings
 config.yaml
 config.yml
 settings.json
 
-# -----------------------
-# 🧪 Test / Debug Files
-# -----------------------
-test_*.py
-debug_*.py
-response_*.json
-
-# -----------------------
-# 🧩 Chrome Extension
-# -----------------------
+# Chrome extension build outputs
 chrome_extension/node_modules/
 chrome_extension/dist/
 chrome_extension/build/
 chrome_extension/*.log
-

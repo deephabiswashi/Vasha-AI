@@ -1,339 +1,164 @@
-# 🎧 Vasha-AI — Real-Time AI Speech Translation System
+# Vasha AI Models
 
-> 🧠 **Vasha-AI** is an intelligent multilingual pipeline that performs **real-time speech-to-speech translation** across 200+ global and Indic languages.
-> It integrates **Automatic Speech Recognition (ASR)**, **Language Identification (LID)**, **Machine Translation (MT)**, and **Text-to-Speech (TTS)** with features like **NER-preservation**, **code-mixed handling**, **transliteration**, and **spoof detection**.
+Core repository for the Vasha AI speech pipeline:
 
-This repository hosts the **core ASR/LID/MT/TTS models and pipeline** that power the production Vasha web experience.
+- `LID` (language identification)
+- `ASR` (speech to text)
+- `MT` (text translation)
+- `TTS` (text to speech)
+- Chrome extension backend integration
 
----
+This repo is designed to run from CLI for local testing and from `vasha_server.py` for browser extension use.
 
-## 📺 Demo Video
+## Repository Layout
 
-You can watch a short **demo of Vasha-AI in action** here:  
-[Vasha-AI Demo on YouTube](https://youtu.be/16qauRDXsOg)
-
----
-
-## 🌍 Key Features
-
-✅ **Real-Time Language Identification (LID)**
-✅ **Automatic Speech Recognition (ASR)** with:
-
-* OpenAI **Whisper**
-* AI4Bharat **IndicConformer**
-* **Faster-Whisper** (batched inference)
-
-✅ **Machine Translation (MT)** with:
-
-* Meta **NLLB (No Language Left Behind)**
-* AI4Bharat **IndicTrans2**
-* **Google Translate** API wrapper
-
-✅ **Text-to-Speech (TTS)** via a unified backend:
-
-* Indic-Parler (Indic voices)
-* Coqui **XTTS**
-* **gTTS** with caching & chunking
-
-✅ **Smart Preprocessing**:
-
-* Named Entity Preservation (NER)
-* Script Transliteration
-* Code-Mixed Text Handling (e.g., Hinglish)
-
-✅ **Advanced Debugging**:
-
-* Back-Translation Consistency Check
-* NER Preservation Mode
-* Transliteration-only Mode
-
-✅ **Security**:
-
-* Spoof Detection for fake audio
-* Dialect tagging (Hindi, Tamil, Bengali, etc.)
-
-✅ **UX Improvements**:
-
-* Real-time progress bars (`tqdm`)
-* Session-wise results saved locally
-
----
-
-## 🧩 Project Directory Structure
-
-```
-Vasha-Models/
-│
-├── ASR_Model/
-│   └── indic_conformer/
-│       └── conformer_asr.py         # AI4Bharat IndicConformer ASR wrapper
-│
-├── LID_Model/
-│   ├── lid.py                       # Language ID + dialect detection
-│   ├── spoof_detection.py           # Spoof detection
-│   └── requirements.txt
-│
-├── MT_Model/
-│   ├── mt_model.py                  # Unified translation model loader (NLLB, etc.)
-│   ├── mt_helper.py                 # Menu + progress bar integration
-│   ├── mt_google.py                 # Google Translate API
-│   ├── mt_preprocessor.py           # NER, transliteration, code-mix logic
-│   ├── mt_debug.py                  # Back-translation utilities
-│   └── nllb-3.3B/                   # Meta NLLB model assets
-│       ├── README.md
-│       └── sentencepiece.bpe.model
-│
-├── TTS_Model/
-│   ├── tts_common/                  # Shared TTS interface & utilities
-│   └── tts_cache/                   # Cached synthesized audio
-│
-├── chrome_extension/                # Chrome Extension source code
-│   └── manifest.json                # Extension manifest
-│
-├── diagrams/                        # Architecture & speech-translation flowcharts
-├── output_tts/                      # Example synthesized waveforms
-│
-├── transcribe_pipeline.py           # Main end-to-end pipeline script
-├── vasha_server.py                  # Main backend server for the extension
-├── verify_server.py                 # Server verification utility
-├── gpuusage.py                      # GPU usage tracker (monitor CUDA)
-├── requirements.txt                 # Global dependencies
-└── readme.md                        # You're reading this file
+```text
+Vasha Models/
+|- ASR_Model/
+|- LID_Model/
+|- MT_Model/
+|- TTS_Model/
+|- chrome_extension/
+|- diagrams/
+|- transcribe_pipeline.py
+|- vasha_server.py
+|- verify_server.py
+|- requirements.txt
 ```
 
----
+## Prerequisites
 
-## 🧠 System Architecture
+- OS: Windows/Linux/macOS
+- Python: 3.10 recommended
+- CUDA GPU recommended for real-time performance (CPU also works, slower)
+- FFmpeg available in PATH (required for some audio/video flows)
 
-```
-🎤 Audio Input
-   │
-   ├──► Language Identification (LID_Model)
-   │      ├── Language & Dialect Detection
-   │      └── Spoof Detection (Fake vs Real)
-   │
-   ├──► Automatic Speech Recognition (ASR_Model)
-   │      ├── Whisper / Faster-Whisper / IndicConformer
-   │      └── Converts Speech → Text
-   │
-   ├──► Machine Translation (MT_Model)
-   │      ├── NLLB / IndicTrans2 / Google
-   │      ├── Transliteration / Code-mixed / NER-Preserve
-   │      └── Progress bar + batching (tqdm)
-   │
-   └──► Output
-          ├── Translated Text
-          ├── Saved Transcription Files
-          └── Optional Back-Translation Debug
-```
+## Environment Setup (CLI)
 
----
-
-## 🖼 Architecture & Flowcharts
-
-![Vasha model pipeline diagram](diagrams/model_pipeline.png)
-
-This diagram shows the **high-level model pipeline**, starting from raw audio input and flowing through LID, ASR, MT, and optional TTS to produce translated speech and text.
-
-![End-to-end speech translation diagram](diagrams/speech_translation.png)
-
-This diagram focuses on the **end-to-end speech translation experience**, illustrating how user audio moves through the backend services to the production web frontend.
-
----
-
-## 🌐 Production Website & Frontend
-
-- **Production web app repo**: [`vasha-website`](https://github.com/SOUMYADEEPDUTTACODER/vasha-website) — TypeScript + Vite frontend and Python backend wiring for deploying these models in production.  
-- **Live website**: [`https://vasha-website.vercel.app/`](https://vasha-website.vercel.app/) — main Vasha AI experience powered by this models repository.
-
----
-
-
-
-## 🧩 Vasha-AI Chrome Extension (Coming Soon)
-
-The project now includes a powerful **Manifest V3 Chrome Extension** that brings Vasha-AI directly to your browser throughout the web.
-
-### ✨ Extension Features
-*   **Real-Time Tab Audio Capture**: Capture audio from YouTube, Twitch, Meet, or any HTML5 audio source.
-*   **Live Translation Overlay**: View translated text in real-time within the extension popup.
-*   **Visual LID Timeline**: A dynamic color-coded timeline that visualizes language changes (e.g., Hindi → English → Bengali) in real-time.
-*   **Mixed Mode**: Capture both **Tab Audio** and **Microphone** simultaneously for interviews or reaction videos.
-*   **State Persistence**: Recording state and transaction history are saved even if the popup closes.
-
-### 🚀 Setting up the Extension
-1.  Open Chrome and navigate to `chrome://extensions`.
-2.  Enable **Developer Mode** (toggle in top right).
-3.  Click **Load Unpacked**.
-4.  Select the `chrome_extension` directory from this repository.
-5.  Pin the **Vasha-AI** icon to your toolbar.
-
-### 🎮 Using the Extension
-1.  Start the backend server: `python vasha_server.py`.
-2.  Open a tab with audio (e.g., a YouTube video).
-3.  Click the Vasha extension icon.
-4.  Select your **Target Language** (e.g., Hindi).
-5.  Click **▶ Start Translating**.
-6.  The extension will capture audio, identify the language, and display the translation instantly.
-
----
-
-## ⚙️ Installation
-
-### 1️⃣ Clone the repository
-
-```bash
-git clone https://github.com/<your-username>/Vasha-AI.git
-cd Vasha-AI
-```
-
-### 2️⃣ Create a new environment
+### 1) Create and activate environment
 
 ```bash
 conda create -n lid-env python=3.10 -y
 conda activate lid-env
 ```
 
-### 3️⃣ Install dependencies
+### 2) Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4️⃣ (Optional) Install extra packages for IndicTrans2 & NLLB
+If `flask-sock` or API docs packages are missing:
 
 ```bash
-pip install torch torchvision torchaudio
-pip install transformers sentencepiece sacremoses accelerate
+pip install flask flask-cors flasgger flask-sock
 ```
 
----
+## Run the Backend Server (for extension + API)
 
-## 🎤 Running the Pipeline
+From repo root:
 
-### ▶️ Real-Time Microphone Translation
+```bash
+python vasha_server.py
+```
+
+Server endpoints:
+
+- `http://127.0.0.1:5000/health`
+- `http://127.0.0.1:5000/docs` (Swagger UI)
+- `ws://127.0.0.1:5000/stream_audio` (WebSocket ASR stream)
+
+## Verify Backend
+
+```bash
+python verify_server.py
+```
+
+Or with curl:
+
+```bash
+curl http://127.0.0.1:5000/health
+```
+
+## Run CLI Pipeline (without extension)
+
+`transcribe_pipeline.py` supports local file, microphone, and YouTube flows.
+
+### Local file
+
+```bash
+python transcribe_pipeline.py --file path/to/audio_or_video.mp4
+```
+
+### Microphone
 
 ```bash
 python transcribe_pipeline.py --mic --duration 10
 ```
 
-### ▶️ Translate YouTube Videos
+### YouTube
 
 ```bash
 python transcribe_pipeline.py --youtube https://youtu.be/<video_id>
 ```
 
-### ▶️ Process a Local File
+## Chrome Extension (MV3) Local Setup
 
-```bash
-python transcribe_pipeline.py --file sample_video.mp4
-```
+1. Open `chrome://extensions`
+2. Enable `Developer mode`
+3. Click `Load unpacked`
+4. Select `chrome_extension/`
+5. Pin extension icon
+6. Start backend first: `python vasha_server.py`
+7. Open an audio tab (YouTube, etc.), open popup, click `Start`
 
----
+Notes:
 
-## 🧪 Debugging Options
+- Popup settings are persisted locally.
+- If backend is unavailable, extension auto-stops capture after repeated failures.
 
-| Option                   | Description                              |
-| ------------------------ | ---------------------------------------- |
-| **1**                    | Normal Translation                       |
-| **2**                    | Batch Translation (with progress bar)    |
-| **3**                    | Back-Translation Debug                   |
-| **4**                    | NER-Preservation Mode                    |
-| **Transliteration Mode** | Converts script without changing meaning |
-| **Code-Mixed Mode**      | Handles bilingual runs like Hinglish     |
+## Troubleshooting
 
----
+### `Failed to fetch` in extension
 
-## 🧾 Example Output
+- Confirm backend running on `127.0.0.1:5000`
+- Check `http://127.0.0.1:5000/health`
+- Reload extension after server restarts
 
-```
-🕣 Transcribed Text:
- नमस्ते मेरा नाम दीप है...
+### Extension appears to keep transcribing after server restart
 
-💬 Translation (Hindi → English):
- Hello, my name is Deep...
+- Stop from popup once
+- Reload extension from `chrome://extensions`
+- Ensure only one backend instance is running
 
-💾 Saved to:
- sessions/session_20251027_142512/translation_hi_to_eng_Latn.txt
-```
+### Icon not visible
 
----
+- Keep manifest icon paths consistent with files in `chrome_extension/`
+- Reload extension after icon changes
 
-## 💡 Advanced Features
+## Diagrams
 
-| Feature              | Description                                        |
-| -------------------- | -------------------------------------------------- |
-| **Progress Bar**     | `tqdm` integrated into translation chunks          |
-| **NER Preservation** | Keeps named entities (people, places) untranslated |
-| **Back-Translation** | Validates translation consistency                  |
-| **Spoof Detection**  | Flags fake/AI-generated voices                     |
-| **GPU Monitoring**   | Optional `gpusage.py` shows CUDA stats             |
+This repository keeps architecture and flow images under `diagrams/`.
 
----
+### Core Pipeline
 
-## 🦉 Example Session Folder
+![Model Pipeline](diagrams/model_pipeline.png)
+![Speech Translation Flow](diagrams/speech_translation.png)
 
-```
-sessions/session_20251027_142512/
-├── output_hi_whisper.txt
-├── translation_hi_to_eng_Latn.txt
-└── debug_log.txt
-```
+### Chrome Extension and Backend Flow
 
----
+![Chrome Extension Overview](diagrams/chromeextension.png)
+![Chrome Server Flow](diagrams/chromeserver.png)
+![Chrome Live Working](diagrams/chromeliveworking.png)
+![Backend Chrome Working](diagrams/backendchromeworking.png)
 
-## 🧑‍💻 Development Notes
+### Output Examples
 
-* Each module is fully independent (LID, ASR, MT).
-* Uses **Whisper** or **IndicConformer** dynamically based on detected language.
-* **Meta NLLB** is default global MT model; falls back to **IndicTrans2** for Indic pairs.
-* Integrated **tqdm progress bar** for smoother user experience during long translations.
+![Hindi Text Example](diagrams/hinditext.png)
+![Oriya Translation Example](diagrams/oriyatranslation.png)
 
----
+## Authoring Notes
 
-## 🔋 Requirements
-
-```
-torch
-torchaudio
-transformers
-tqdm
-sentencepiece
-sacremoses
-faster-whisper
-indic-nlp-library
-langid
-spacy
-flask
-pydub
-openai-whisper
-```
-
----
-
-## 🧱 Future Enhancements
-
-* Real-time subtitle overlay for YouTube/Twitch streams
-* Flask/FastAPI dashboard
-* Speaker diarization
-* Multi-GPU batch processing
-* Offline IndicTrans2 quantization
-
----
-
-## 👨‍💻 Author
-
-**Deep Habiswashi**
-**Soumyadeep Dutta**
-**Sudeshna Mohanty**
-
-
----
-
-## 🪄 License
-
-```
-MIT License © 2025 Deep Habiswashi
-```
-
-
+- Keep CLI commands reproducible from repo root.
+- Keep diagrams in `diagrams/` and reference with relative markdown paths.
+- Keep extension-specific details in `chrome_extension/`.
