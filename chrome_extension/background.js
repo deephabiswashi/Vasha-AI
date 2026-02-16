@@ -11,6 +11,11 @@ let voiceoverEnabled = true;
 let ttsVolume = 1.0;
 let lastStableText = "";
 let activeTabId = null;
+const VALID_ASR_MODELS = new Set(["faster_whisper", "indic_conformer"]);
+
+function sanitizeAsrModel(modelId) {
+    return VALID_ASR_MODELS.has(modelId) ? modelId : "faster_whisper";
+}
 
 const SESSION_KEYS = [
     'asrModel',
@@ -29,7 +34,7 @@ async function getSessionStore() {
 async function loadSessionState() {
     const store = await getSessionStore();
     const state = await store.get(SESSION_KEYS);
-    if (state.asrModel) asrModel = state.asrModel;
+    asrModel = sanitizeAsrModel(state.asrModel || asrModel);
     if (typeof state.partialEnabled === 'boolean') partialEnabled = state.partialEnabled;
     if (typeof state.wordTimestamps === 'boolean') wordTimestamps = state.wordTimestamps;
     if (typeof state.voiceoverEnabled === 'boolean') voiceoverEnabled = state.voiceoverEnabled;
@@ -69,7 +74,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             try {
                 targetLang = request.targetLang;
                 inputMode = request.inputMode;
-                if (request.asrModel) asrModel = request.asrModel;
+                if (request.asrModel) asrModel = sanitizeAsrModel(request.asrModel);
                 if (typeof request.partialEnabled === 'boolean') partialEnabled = request.partialEnabled;
                 if (typeof request.wordTimestamps === 'boolean') wordTimestamps = request.wordTimestamps;
                 if (typeof request.voiceoverEnabled === 'boolean') voiceoverEnabled = request.voiceoverEnabled;
@@ -132,7 +137,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const result = await chrome.storage.local.get(['transcriptHistory']);
             sendResponse({ history: result.transcriptHistory || [] });
         } else if (request.type === "UPDATE_ASR_PREFS") {
-            if (request.asrModel) asrModel = request.asrModel;
+            if (request.asrModel) asrModel = sanitizeAsrModel(request.asrModel);
             if (typeof request.partialEnabled === 'boolean') partialEnabled = request.partialEnabled;
             if (typeof request.wordTimestamps === 'boolean') wordTimestamps = request.wordTimestamps;
             await saveSessionState();
@@ -203,7 +208,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ success: true });
         } else if (request.type === "ASR_OVERRIDE") {
             // Backend override due to language switching
-            asrModel = request.model || asrModel;
+            asrModel = sanitizeAsrModel(request.model || asrModel);
             await saveSessionState();
             broadcastToUIs({
                 type: "ASR_MODEL_UPDATE",

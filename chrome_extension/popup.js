@@ -16,6 +16,10 @@ const voiceoverToggle = document.getElementById('voiceoverToggle');
 const ttsVolume = document.getElementById('ttsVolume');
 const ttsVolumeLabel = document.getElementById('ttsVolumeLabel');
 
+function modelLabel(modelId) {
+    return modelId || "--";
+}
+
 // Initial check of state
 chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
     if (response && response.isRecording) {
@@ -37,7 +41,7 @@ chrome.runtime.sendMessage({ type: "GET_STATUS" }, (response) => {
     if (response) {
         if (response.asrModel) {
             asrModelSelect.value = response.asrModel;
-            asrModelStatus.innerText = response.asrModel;
+            asrModelStatus.innerText = modelLabel(response.asrModel);
         }
         if (typeof response.partialEnabled === 'boolean') partialToggle.checked = response.partialEnabled;
         if (typeof response.wordTimestamps === 'boolean') wordTsToggle.checked = response.wordTimestamps;
@@ -90,7 +94,7 @@ asrModelSelect.addEventListener('change', () => {
         partialEnabled: partialToggle.checked,
         wordTimestamps: wordTsToggle.checked
     });
-    asrModelStatus.innerText = asrModelSelect.value;
+    asrModelStatus.innerText = modelLabel(asrModelSelect.value);
 });
 
 langSelect.addEventListener('change', () => {
@@ -140,7 +144,7 @@ function showRecordingState() {
     statusText.innerText = "Listening";
     statusDot.classList.add('active');
     liveText.innerText = "Waiting for speech...";
-    asrModelStatus.innerText = asrModelSelect.value;
+    asrModelStatus.innerText = modelLabel(asrModelSelect.value);
 }
 
 function showReadyState() {
@@ -158,12 +162,12 @@ chrome.runtime.onMessage.addListener((message) => {
         if (message.text) liveText.innerText = message.text;
         if (message.state) updateState(message.state);
         if (message.asr_model) {
-            asrModelStatus.innerText = message.asr_model;
+            asrModelStatus.innerText = modelLabel(message.asr_model);
         }
     } else if (message.type === "ASR_MODEL_UPDATE") {
         if (message.model) {
             asrModelSelect.value = message.model;
-            asrModelStatus.innerText = message.model;
+            asrModelStatus.innerText = modelLabel(message.model);
         }
     } else if (message.type === "ASR_STATE") {
         updateState(message.state);

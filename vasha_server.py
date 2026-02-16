@@ -212,6 +212,15 @@ def run_asr_chunk(input_path, detected_lang, model_choice, word_timestamps):
 
     return text, asr_used, words
 
+def normalize_client_model(model_name: str) -> str:
+    """
+    Keep ASR model selection stable even if client sends empty value.
+    """
+    valid_models = {"faster_whisper", "indic_conformer"}
+    if not model_name:
+        return "faster_whisper"
+    return model_name if model_name in valid_models else "faster_whisper"
+
 if HAS_WEBSOCKET:
     @sock.route('/stream_audio')
     def stream_audio(ws):
@@ -282,7 +291,8 @@ if HAS_WEBSOCKET:
                     detected_lang = "en"
 
                 # Determine ASR model (backend override)
-                preferred_model = msg.get("asr_model", state["asr_model"])
+                preferred_model_raw = msg.get("asr_model", state["asr_model"])
+                preferred_model = normalize_client_model(preferred_model_raw)
                 effective_model = preferred_model
                 indic_set = {'hi', 'bn', 'as', 'or', 'ta', 'te'}
                 if detected_lang in indic_set:
@@ -447,13 +457,29 @@ def process_audio():
         print(f"Translation Mode: {mode.upper()}")
 
         translated_text = ""
+        mt_backend = "google"
         with GPU_LOCK:
-            translated_text = perform_translation(
-                text,
-                detected_lang,
-                target_flores,
-                backend_choice="nllb"
-            )
+            try:
+                translated_text = perform_translation(
+                    text,
+                    detected_lang,
+                    target_flores,
+                    backend_choice="google"
+                )
+                # googletrans may silently return source text on failure.
+                if (not translated_text or not translated_text.strip()) or (
+                    detected_lang != target_lang_iso and translated_text.strip() == text.strip()
+                ):
+                    raise RuntimeError("GoogleMT produced empty or unchanged output")
+            except Exception as mt_err:
+                print(f"GoogleMT failed, falling back to NLLB: {mt_err}")
+                translated_text = perform_translation(
+                    text,
+                    detected_lang,
+                    target_flores,
+                    backend_choice="nllb"
+                )
+                mt_backend = "nllb"
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -465,21 +491,34 @@ def process_audio():
         os.makedirs(out_dir, exist_ok=True)
 
         tts_path = ""
+        tts_backend = "gtts"
 
         with GPU_LOCK:
             try:
                 tts_path = run_universal_tts(
                     text=translated_text,
                     target_lang=target_flores,
-                    prefer="xtts",
+                    prefer="gtts",
                     out_dir=out_dir,
                     out_name=output_tts_filename,
                     reference_audio=None
                 )
-                gc.collect()
-                torch.cuda.empty_cache()
             except Exception as e:
-                print(f"TTS Failed: {e}")
+                print(f"gTTS failed, falling back to XTTS: {e}")
+                tts_backend = "xtts"
+                try:
+                    tts_path = run_universal_tts(
+                        text=translated_text,
+                        target_lang=target_flores,
+                        prefer="xtts",
+                        out_dir=out_dir,
+                        out_name=output_tts_filename,
+                        reference_audio=None
+                    )
+                except Exception as e2:
+                    print(f"TTS Failed (XTTS fallback): {e2}")
+            gc.collect()
+            torch.cuda.empty_cache()
 
         audio_b64 = ""
         if tts_path and os.path.exists(tts_path):
@@ -492,7 +531,9 @@ def process_audio():
                 "detected_language": detected_lang,
                 "confidence": confidence,
                 "asr_model": asr_used,
-                "mt_mode": mode
+                "mt_mode": mode,
+                "mt_backend": mt_backend,
+                "tts_backend": tts_backend
             },
             "transcribed_text": text,
             "translated_text": translated_text,
